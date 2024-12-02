@@ -1,5 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
-  // Load deadline and acceptance values from localStorage or set defaults
+  // Load settings or set default values
   const streakUpdateTimestamp = parseInt(localStorage.getItem("streakUpdateTimestamp")) || 22;
   const acceptanceRate = parseInt(localStorage.getItem("acceptanceRate")) || 80;
 
@@ -11,25 +11,32 @@ document.addEventListener("DOMContentLoaded", () => {
   const acceptPercent = document.getElementById("accept-percent");
   const deadline = document.getElementById("deadline");
 
-  // Set initial input values for acceptance rate and deadline
+  // Set initial values for form inputs
   acceptPercent.value = acceptanceRate;
   deadline.value = streakUpdateTimestamp;
 
-  // Initialize data from localStorage
+  // Load or initialize data from localStorage
   let habits = JSON.parse(localStorage.getItem("habits")) || [];
   let streak = parseInt(localStorage.getItem("streak")) || 0;
   let maxStreak = parseInt(localStorage.getItem("maxStreak")) || streak;
   let checkedStates = JSON.parse(localStorage.getItem("checkedStates")) || Array(habits.length).fill(false);
 
-  // Config form submission to update settings and reload
+  // Save updated data to localStorage
+  const updateLocalStorage = () => {
+    localStorage.setItem("habits", JSON.stringify(habits));
+    localStorage.setItem("checkedStates", JSON.stringify(checkedStates));
+    localStorage.setItem("streak", streak);
+  };
+
+  // Config form submission: update and reload
   configForm.onsubmit = (e) => {
     e.preventDefault();
     localStorage.setItem("acceptanceRate", acceptPercent.value);
     localStorage.setItem("streakUpdateTimestamp", deadline.value);
-    location.reload(); // Reload to reflect changes immediately
+    location.reload(); // Reload to reflect changes
   };
 
-  // Habit form submission: Add a new habit
+  // Add a new habit
   habitForm.onsubmit = (e) => {
     e.preventDefault();
     const newHabit = newHabitInput.value.trim();
@@ -37,36 +44,41 @@ document.addEventListener("DOMContentLoaded", () => {
       habits.push(newHabit);
       checkedStates.push(false);
       updateLocalStorage();
-      newHabitInput.value = ''; // Clear input
+      newHabitInput.value = '';
       renderHabits();
+      updateFinishButton();
     }
   };
 
-  // Check if the user meets the success criteria based on acceptance rate
+  // Determine if the habits meet the success criteria
   const isSuccessful = () => {
     const checkedCount = checkedStates.filter(Boolean).length;
     return habits.length > 0 && checkedCount >= (acceptanceRate / 100) * habits.length;
   };
 
-  // Update streak and reset checks
-  const updateStreak = () => {
-    streak++;
-    checkedStates.fill(false);
-    updateLocalStorage();
-  };
-
-  // Reset streak and update maxStreak if necessary
-  const resetStreak = () => {
+  // Update max streak and reset checks
+  const updateMaxStreak = () => {
     if (streak > maxStreak) {
       maxStreak = streak;
       localStorage.setItem("maxStreak", maxStreak);
     }
+  };
+
+  const updateStreak = () => {
+    streak++;
+    updateMaxStreak();
+    checkedStates.fill(false);
+    updateLocalStorage();
+  };
+
+  const resetStreak = () => {
+    updateMaxStreak();
     streak = 0;
     checkedStates.fill(false);
     updateLocalStorage();
   };
 
-  // Schedule streak updates and handle deadline checking
+  // Countdown logic for the streak reset timer
   const scheduleStreakUpdate = (timestamp) => {
     const now = new Date();
     const nextUpdate = new Date();
@@ -76,11 +88,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const lastUpdate = new Date(localStorage.getItem("lastUpcomingUpdate"));
     if (!isNaN(lastUpdate) && now > lastUpdate) {
-      isSuccessful() ? updateStreak() : resetStreak();
+      now - lastUpdate < 24 * 60 * 60 * 1000 ? (isSuccessful() ? updateStreak() : resetStreak()) : resetStreak();
     }
+
     localStorage.setItem("lastUpcomingUpdate", nextUpdate.toISOString());
 
-    // Countdown timer for UI
+    // Display countdown
     const countdownInterval = setInterval(() => {
       const timeLeft = nextUpdate - new Date();
       if (timeLeft <= 0) {
@@ -92,22 +105,41 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 1000);
   };
 
-  // Update the countdown display in the UI
   const updateCountdownDisplay = (timeLeft) => {
     const hours = Math.floor((timeLeft / (1000 * 60 * 60)) % 24);
     const minutes = Math.floor((timeLeft / (1000 * 60)) % 60);
     const seconds = Math.floor((timeLeft / 1000) % 60);
-    const countdownElement = document.getElementById("countdown");
-    if (countdownElement) {
-      countdownElement.textContent = `⏰ Time left until deadline: ${hours}h ${minutes}m ${seconds}s ⏰`;
+    document.getElementById("countdown").textContent = `⏰ Time left: ${hours}h ${minutes}m ${seconds}s ⏰`;
+  };
+
+  // Handle "Finish" button visibility
+  const updateFinishButton = () => {
+    isSuccessful() ? addFinishButton() : removeFinishButton();
+  };
+
+  const addFinishButton = () => {
+    if (!document.getElementById('finish-button')) {
+      const finishButton = document.createElement("button");
+      finishButton.id = 'finish-button';
+      finishButton.textContent = "Finish";
+      finishButton.onclick = () => {
+        updateStreak();
+        renderHabits();
+      };
+      habitList.appendChild(finishButton);
     }
   };
 
-  // Render the habit list and UI components
+  const removeFinishButton = () => {
+    const finishButton = document.getElementById('finish-button');
+    if (finishButton) {
+      habitList.removeChild(finishButton);
+    }
+  };
+
+  // Render habits
   const renderHabits = () => {
-    habitList.innerHTML = `
-      <p>Your current streak: ${streak} 🔥 (Longest streak: ${maxStreak} 🔥)</p>
-    `;
+    habitList.innerHTML = `<p>Your current streak: ${streak} 🔥 (Longest: ${maxStreak} 🔥)</p>`;
     habits.forEach((habit, index) => {
       const li = document.createElement("li");
       li.innerHTML = `
@@ -120,19 +152,21 @@ document.addEventListener("DOMContentLoaded", () => {
       li.querySelector("input").onchange = () => {
         checkedStates[index] = li.querySelector("input").checked;
         updateLocalStorage();
+        updateFinishButton();
       };
 
       li.querySelector(".delete-button").onclick = () => {
-        if (confirm("Are you sure you want to delete this habit?")) {
+        if (confirm("Delete this habit?")) {
           habits.splice(index, 1);
           checkedStates.splice(index, 1);
           updateLocalStorage();
           renderHabits();
+          updateFinishButton();
         }
       };
 
       li.querySelector(".rename-button").onclick = () => {
-        const newName = prompt("Enter new habit name:", habit).trim();
+        const newName = prompt("Rename habit:", habit).trim();
         if (newName) {
           habits[index] = newName;
           updateLocalStorage();
@@ -144,14 +178,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
-  // Helper function to update all necessary localStorage entries
-  const updateLocalStorage = () => {
-    localStorage.setItem("habits", JSON.stringify(habits));
-    localStorage.setItem("checkedStates", JSON.stringify(checkedStates));
-    localStorage.setItem("streak", streak);
-  };
-
-  // Initial calls
   renderHabits();
   scheduleStreakUpdate(streakUpdateTimestamp);
+  updateFinishButton();
 });
