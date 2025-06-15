@@ -1,75 +1,317 @@
-.delete-button,
-.rename-button {
-  margin-left: 10px;
-  padding: 5px 10px;
-  font-size: 14px;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
 
-.delete-button {
-  background-color: #f44336;
-}
-
-.delete-button:hover {
-  background-color: #e53935;
-}
-
-.rename-button {
-  background-color: #2196F3;
-}
-
-.rename-button:hover {
-  background-color: #1e88e5;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 body {
-  font-family: Arial, sans-serif;
-  max-width: 800px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  color: #333;
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
 }
 
-.habit-form {
+.header {
+  text-align: center;
+  margin-bottom: 40px;
+  color: white;
+}
+
+.header h1 {
+  font-size: 3rem;
+  font-weight: 700;
+  margin-bottom: 10px;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.countdown {
+  background: rgba(255,255,255,0.2);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 20px;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: white;
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.3);
+}
+
+.mission-form {
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 30px;
   margin-bottom: 30px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.3);
+}
+
+.mission-form h2 {
+  margin-bottom: 25px;
+  color: #333;
+  font-size: 1.5rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  margin-bottom: 25px;
+}
+
+.param-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.input-group {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
 }
 
-.habit-form input[type="text"] {
-  flex: 1;
-  padding: 10px;
-  font-size: 16px;
-  border: 2px solid #ddd;
-  border-radius: 4px;
+.input-group label {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #555;
 }
 
-.habit-form button {
-  padding: 10px 20px;
+.input-group input {
+  padding: 12px 16px;
+  border: 2px solid #e1e5e9;
+  border-radius: 12px;
   font-size: 16px;
-  background-color: #4CAF50;
+  transition: all 0.3s ease;
+  background: white;
+}
+
+.input-group input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.add-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
-  border-radius: 4px;
+  padding: 15px 30px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.add-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.missions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 25px;
+}
+
+.mission-card {
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 25px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+  border: 1px solid rgba(255,255,255,0.3);
+  transition: all 0.3s ease;
+}
+
+.mission-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 15px 40px rgba(0,0,0,0.2);
+}
+
+.mission-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+  gap: 15px;
+}
+
+.mission-checkbox {
+  width: 24px;
+  height: 24px;
   cursor: pointer;
 }
 
-.habit-form button:hover {
-  background-color: #45a049;
+.mission-name {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #333;
+  flex: 1;
 }
 
-input[type="checkbox"]:checked+label {
+.mission-name.completed {
   text-decoration: line-through;
   color: #888;
 }
 
-#habit-list {
-  list-style: none;
-  padding: 0;
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 15px;
+  font-weight: 600;
 }
 
-#habit-list li {
-  margin: 10px 0;
+.streak {
+  color: #ff6b35;
+}
+
+.misses {
+  color: #e74c3c;
+}
+
+.params-section {
+  margin: 20px 0;
+}
+
+.params-section h4 {
+  margin-bottom: 15px;
+  color: #555;
+}
+
+.params-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.param-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.param-input label {
+  min-width: 80px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #666;
+}
+
+.param-input input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.gains-section {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  border-radius: 12px;
+  padding: 15px;
+  margin: 15px 0;
+  color: white;
+}
+
+.gains-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  font-size: 0.9rem;
+}
+
+.gain-item {
+  text-align: center;
+}
+
+.gain-item:last-child {
+  background: rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 8px;
+  transform: scale(1.05);
+}
+
+.gain-item:last-child .gain-value {
+  font-size: 1.25rem;
+  text-shadow: 0 0 8px rgba(255,255,255,0.6);
+}
+
+.gain-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-delete {
+  background: #e74c3c;
+  color: white;
+}
+
+.btn-delete:hover {
+  background: #c0392b;
+  transform: translateY(-1px);
+}
+
+.btn-rename {
+  background: #3498db;
+  color: white;
+}
+
+.btn-rename:hover {
+  background: #2980b9;
+  transform: translateY(-1px);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: white;
+  font-size: 1.2rem;
+}
+
+@media (max-width: 768px) {
+  .missions-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .param-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .params-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .gains-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  
+  .header h1 {
+    font-size: 2rem;
+  }
 }
