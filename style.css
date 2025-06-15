@@ -44,6 +44,88 @@ body {
   border: 1px solid rgba(255,255,255,0.3);
 }
 
+.weekly-goal-section {
+ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+ border-radius: 15px;
+ padding: 20px;
+ margin: 20px 0;
+ color: white;
+ box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+}
+
+.weekly-goal-section label {
+ display: block;
+ font-weight: 600;
+ font-size: 1.1rem;
+ margin-bottom: 15px;
+}
+
+#weekly-goal {
+ background: rgba(255, 255, 255, 0.2);
+ border: 2px solid rgba(255, 255, 255, 0.3);
+ border-radius: 8px;
+ padding: 8px 12px;
+ margin-left: 10px;
+ color: white;
+ font-weight: 600;
+ width: 80px;
+ backdrop-filter: blur(10px);
+}
+
+#weekly-goal::placeholder {
+ color: rgba(255, 255, 255, 0.7);
+}
+
+#weekly-goal:focus {
+ outline: none;
+ border-color: rgba(255, 255, 255, 0.6);
+ box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
+}
+
+#accumulated-gritcoin,
+#daily-gritcoin {
+ display: inline-block;
+ background: rgba(255, 255, 255, 0.15);
+ padding: 8px 15px;
+ border-radius: 20px;
+ margin: 8px 10px 0 0;
+ font-weight: 600;
+ font-size: 0.95rem;
+ backdrop-filter: blur(5px);
+}
+
+#daily-gritcoin {
+ background: rgba(255, 215, 0, 0.3); /* golden tint cho today */
+ border: 1px solid rgba(255, 215, 0, 0.5);
+}
+
+#goal-message {
+ margin-top: 10px;
+ padding: 12px;
+ border-radius: 8px;
+ font-weight: 600;
+ text-align: center;
+ min-height: 20px;
+ transition: all 0.3s ease;
+}
+
+/* Goal achievement states */
+#goal-message.success {
+ background: linear-gradient(135deg, #00b09b, #96c93d);
+ color: white;
+ animation: goalPulse 2s infinite;
+}
+
+#goal-message.warning {
+ background: linear-gradient(135deg, #f093fb, #f5576c);
+ color: white;
+}
+
+@keyframes goalPulse {
+ 0%, 100% { transform: scale(1); }
+ 50% { transform: scale(1.02); }
+}
+
 .mission-form {
   background: rgba(255,255,255,0.95);
   backdrop-filter: blur(10px);

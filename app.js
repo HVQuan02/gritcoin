@@ -1,160 +1,202 @@
 // GritCoin params
-const SCI = 0.01;
-const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
-const DEADLINE_HOUR = 22;
+const SCI = 0.01
+const DEADLINE_HOUR = 22
 
-// State management
+const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000
+
 class StateManager {
   constructor() {
-    this.storageKeys = ["missions", "streaks", "checkedStates", "lastDeadlines", "misses"];
-    this.loadState();
+    this.storageKeys = ["missions", "streaks", "checkedStates", "lastDeadlines", "misses"]
+    this.loadState()
   }
 
   loadState() {
     [this.missions, this.streaks, this.checkedStates, this.lastDeadlines, this.misses] = 
       this.storageKeys.map(key => {
-        const item = localStorage.getItem(key);
-        return item ? JSON.parse(item) : [];
-      });
+        const item = localStorage.getItem(key)
+        return item ? JSON.parse(item) : []
+      })
+    this.weeklyGoal = parseFloat(localStorage.getItem("weeklyGoal")) || 100
+    this.accumulatedCoin = parseFloat(localStorage.getItem("accumulatedCoin")) || 0
+    const isNoMission = !this.lastDeadlines.length;
+    const isPastDeadline = new Date() > new Date(this.lastDeadlines[0]);
+    if (isNoMission || isPastDeadline) {
+      this.dailyEarnedCoin = 0;
+    } else {
+      this.dailyEarnedCoin = parseFloat(localStorage.getItem("dailyEarnedCoin")) || 0;
+    }
   }
 
   saveState() {
     this.storageKeys.forEach(key => {
-      localStorage.setItem(key, JSON.stringify(this[key]));
-    });
+      localStorage.setItem(key, JSON.stringify(this[key]))
+    })
+    localStorage.setItem("weeklyGoal", this.weeklyGoal)
+    localStorage.setItem("accumulatedCoin", this.accumulatedCoin)
+    localStorage.setItem("dailyEarnedCoin", this.dailyEarnedCoin)
   }
 }
 
-// App logic
-class HabitTracker {
+class GritCoin {
   constructor() {
-    this.state = new StateManager();
-    this.countdownInterval = null;
-    this.init();
+    this.state = new StateManager()
+    this.countdownInterval = null
+    this.init()
   }
 
   init() {
-    this.updateMissionsOnAppOpen();
-    this.setupEventListeners();
-    this.render();
-    this.startCountdown();
+    this.updateMissionsOnAppOpen()
+    this.setupEventListeners()
+    this.renderGritCoinDisplay()
+    this.render()
+    this.startCountdown()
     
-    window.addEventListener('beforeunload', () => this.state.saveState());
+    window.onbeforeunload = () => this.state.saveState()
   }
 
   getCurrentDeadline() {
-    const now = new Date();
-    const deadline = new Date();
-    deadline.setHours(DEADLINE_HOUR, 0, 0, 0);
-    if (now > deadline) deadline.setDate(deadline.getDate() + 1);
-    return deadline;
+    const now = new Date()
+    const deadline = new Date()
+    deadline.setHours(DEADLINE_HOUR, 0, 0, 0)
+    if (now > deadline) deadline.setDate(deadline.getDate() + 1)
+    return deadline
   }
 
   startCountdown() {
-    if (this.countdownInterval) clearInterval(this.countdownInterval);
+    if (this.countdownInterval) clearInterval(this.countdownInterval)
 
     const updateCountdown = () => {
-      const now = new Date();
-      const currentDeadline = this.getCurrentDeadline();
-      const timeLeft = currentDeadline - now;
+      const now = new Date()
+      const currentDeadline = this.getCurrentDeadline()
+      const timeLeft = currentDeadline - now
 
-      const hours = Math.floor((timeLeft / (60 * 60 * 1000)) % 24);
-      const minutes = Math.floor((timeLeft / (60 * 1000)) % 60);
-      const seconds = Math.floor((timeLeft / 1000) % 60);
+      const hours = Math.floor((timeLeft / (60 * 60 * 1000)) % 24)
+      const minutes = Math.floor((timeLeft / (60 * 1000)) % 60)
+      const seconds = Math.floor((timeLeft / 1000) % 60)
 
       document.getElementById("countdown").textContent = 
-        `⏰ Time left: ${hours}h ${minutes}m ${seconds}s ⏰`;
-    };
+        `⏰ Time left: ${hours}h ${minutes}m ${seconds}s ⏰`
+    }
 
-    updateCountdown();
-    this.countdownInterval = setInterval(updateCountdown, 1000);
+    updateCountdown()
+    this.countdownInterval = setInterval(updateCountdown, 1000)
   }
 
   updateMissionsOnAppOpen() {
-    const now = new Date();
+    const now = new Date()
     
     this.state.missions.forEach((_, index) => {
       const lastDeadline = this.state.lastDeadlines[index] ? 
-        new Date(this.state.lastDeadlines[index]) : null;
-      const currentDeadline = this.getCurrentDeadline();
+        new Date(this.state.lastDeadlines[index]) : null
+      const currentDeadline = this.getCurrentDeadline()
 
-      this.state.lastDeadlines[index] = currentDeadline.toISOString();
+      this.state.lastDeadlines[index] = currentDeadline.toISOString()
 
       if (!lastDeadline) {
-        return;
+        return
       }
 
-      const missGapInMs = now - lastDeadline;
+      const missGapInMs = now - lastDeadline
 
-      if (missGapInMs <= 0) return;
+      if (missGapInMs <= 0) return
       
-      // If within deadline and already checked, complete mission
       if (missGapInMs <= ONE_DAY_IN_MS && this.state.checkedStates[index]) {
-        this.completeMission(index);
-        return;
+        this.completeMission(index)
+        return
       }
 
       // Calculate missed days
       const daysMissed = this.state.misses[index] + 
         Math.floor(missGapInMs / ONE_DAY_IN_MS) + 
-        (!this.state.checkedStates[index] ? 1 : 0);
+        (!this.state.checkedStates[index] ? 1 : 0)
 
       if (daysMissed >= 3) {
-        this.resetMission(index);
+        this.resetMission(index)
       } else {
-        this.missMission(index, daysMissed);
+        this.missMission(index, daysMissed)
       }
-    });
+    })
   }
 
   completeMission(index) {
-    this.state.streaks[index]++;
-    this.state.misses[index] = 0;
-    this.state.checkedStates[index] = false;
+    this.state.streaks[index]++
+    this.state.misses[index] = 0
+    this.state.checkedStates[index] = false
   }
 
   missMission(index, missedDays) {
-    this.state.misses[index] = missedDays;
-    this.state.checkedStates[index] = false;
+    this.state.misses[index] = missedDays
+    this.state.checkedStates[index] = false
   }
 
   resetMission(index) {
-    this.state.streaks[index] = 0;
-    this.state.misses[index] = 0;
-    this.state.checkedStates[index] = false;
+    this.state.streaks[index] = 0
+    this.state.misses[index] = 0
+    this.state.checkedStates[index] = false
+  }
+
+  renderGritCoinDisplay() {
+    document.getElementById("accumulated-gritcoin").textContent = `Accumulated GritCoin: ${this.state.accumulatedCoin.toFixed(2)}`
+    document.getElementById("daily-gritcoin").textContent = `Daily Earned GritCoin: ${this.state.dailyEarnedCoin.toFixed(2)}`
+  }
+
+  notifyIfGoalAchieved() {
+    if (this.state.accumulatedCoin >= this.state.weeklyGoal) {
+      document.getElementById("goal-message").textContent = "🎉 Weekly Goal Achieved! 🎉"
+    }
+  }
+
+  addToDailyCoin(index) {
+    const mission = this.state.missions[index]
+    const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index])
+    this.state.dailyEarnedCoin += currentGain
+    this.state.accumulatedCoin += currentGain
+    this.renderGritCoinDisplay()
+    this.notifyIfGoalAchieved()
+  }
+  
+  rollbackFromDailyCoin(index) {
+    const mission = this.state.missions[index]
+    const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index])
+    this.state.dailyEarnedCoin -= currentGain
+    this.state.accumulatedCoin -= currentGain
+    this.renderGritCoinDisplay()
   }
 
   calculateBaseMultiplier(mission) {
-    const avoidanceMultiplier = mission.Avoidance >= 0.8 ? 1.1 : 1;
-    const ltRoiMultiplier = mission.LT_ROI >= 0.8 ? 1.2 : 1;
-    return avoidanceMultiplier * ltRoiMultiplier;
+    const avoidanceMultiplier = mission.Avoidance >= 0.8 ? 1.1 : 1
+    const ltRoiMultiplier = mission.LT_ROI >= 0.8 ? 1.2 : 1
+    return avoidanceMultiplier * ltRoiMultiplier
   }
 
   calculateBaseGain(mission) {
-    const baseMultiplier = this.calculateBaseMultiplier(mission);
+    const baseMultiplier = this.calculateBaseMultiplier(mission)
     const flowValue = (mission.LT_ROI <= 0.5 || mission.Avoidance <= 0.5) 
       ? mission.Flow * 0.5 
-      : mission.Flow;
+      : mission.Flow
 
-    return (mission.LT_ROI * 4 + mission.Avoidance * 3 + flowValue * 2 + mission.ST_ROI * 1) * baseMultiplier;
+    return (mission.LT_ROI * 4 + mission.Avoidance * 3 + flowValue * 2 + mission.ST_ROI * 1) * baseMultiplier
   }
 
   calculateMomentumRate(streak, miss) {
-    const effectiveStreak = Math.max(streak - miss, 0);
-    return Math.pow(1 + SCI, effectiveStreak);
+    const effectiveStreak = Math.max(streak - miss, 0)
+    return Math.pow(1 + SCI, effectiveStreak)
   }
 
   calculateCurrentGain(mission, streak, miss) {
-    const baseGain = this.calculateBaseGain(mission);
-    if (miss > 2) return baseGain;
-    return baseGain * this.calculateMomentumRate(streak, miss);
+    const baseGain = this.calculateBaseGain(mission)
+    if (miss > 2) return baseGain
+    return baseGain * this.calculateMomentumRate(streak, miss)
   }
 
   setupEventListeners() {
-    document.getElementById("mission-form").addEventListener('submit', (e) => {
-      e.preventDefault();
-      this.addMission();
-    });
+    document.getElementById("mission-form").onsubmit = (e) => {
+      e.preventDefault()
+      this.addMission()
+    }
+    document.getElementById("weekly-goal").oninput = (e) => {
+      this.state.weeklyGoal = parseFloat(e.target.value)
+    }
   }
 
   addMission() {
@@ -164,81 +206,80 @@ class HabitTracker {
       Avoidance: parseFloat(document.getElementById("avoidance").value),
       Flow: parseFloat(document.getElementById("flow").value),
       ST_ROI: parseFloat(document.getElementById("st-roi").value)
-    };
+    }
 
-    this.state.missions.push(formData);
-    this.state.streaks.push(0);
-    this.state.misses.push(0);
-    this.state.checkedStates.push(false);
-    this.state.lastDeadlines.push(this.getCurrentDeadline().toISOString());
+    this.state.missions.push(formData)
+    this.state.streaks.push(0)
+    this.state.misses.push(0)
+    this.state.checkedStates.push(false)
+    this.state.lastDeadlines.push(this.getCurrentDeadline().toISOString())
 
-    // Reset form
-    document.getElementById("mission-form").reset();
-    this.render();
+    document.getElementById("mission-form").reset()
+    this.render()
   }
 
   deleteMission(index) {
-    if (!confirm("Delete this mission?")) return;
+    if (!confirm("Delete this mission?")) return
     
     ['missions', 'streaks', 'misses', 'checkedStates', 'lastDeadlines'].forEach(key => {
-      this.state[key].splice(index, 1);
-    });
-    this.render();
+      this.state[key].splice(index, 1)
+    })
+    this.render()
   }
 
   renameMission(index) {
-    const newName = prompt("Rename mission:", this.state.missions[index].Name)?.trim();
+    const newName = prompt("Rename mission:", this.state.missions[index].Name)?.trim()
     if (newName) {
-      this.state.missions[index].Name = newName;
-      this.render();
+      this.state.missions[index].Name = newName
+      this.render()
     }
   }
 
   updateParameter(index, param, value) {
-    this.state.missions[index][param] = parseFloat(value);
-    this.updateMissionDisplay(index);
+    this.state.missions[index][param] = parseFloat(value)
+    this.renderMissionDisplay(index)
   }
 
-  updateMissionDisplay(index) {
-    const mission = this.state.missions[index];
-    const baseMultiplier = this.calculateBaseMultiplier(mission);
-    const baseGain = this.calculateBaseGain(mission);
-    const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index]);
+  renderMissionDisplay(index) {
+    const mission = this.state.missions[index]
+    const baseMultiplier = this.calculateBaseMultiplier(mission)
+    const baseGain = this.calculateBaseGain(mission)
+    const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index])
 
-    document.querySelector(`[data-index="${index}"] .base-multiplier`).textContent = baseMultiplier.toFixed(2);
-    document.querySelector(`[data-index="${index}"] .base-gain`).textContent = baseGain.toFixed(2);
-    document.querySelector(`[data-index="${index}"] .current-gain`).textContent = currentGain.toFixed(2);
+    document.querySelector(`[data-index="${index}"] .base-multiplier`).textContent = baseMultiplier.toFixed(2)
+    document.querySelector(`[data-index="${index}"] .base-gain`).textContent = baseGain.toFixed(2)
+    document.querySelector(`[data-index="${index}"] .current-gain`).textContent = currentGain.toFixed(2)
   }
 
   render() {
-    const missionList = document.getElementById("mission-list");
-    const emptyState = document.getElementById("empty-state");
+    const missionList = document.getElementById("mission-list")
+    const emptyState = document.getElementById("empty-state")
     
     if (this.state.missions.length === 0) {
-      missionList.style.display = 'none';
-      emptyState.style.display = 'block';
-      return;
+      missionList.style.display = 'none'
+      emptyState.style.display = 'block'
+      return
     }
 
-    missionList.style.display = 'grid';
-    emptyState.style.display = 'none';
-    missionList.innerHTML = '';
+    missionList.style.display = 'grid'
+    emptyState.style.display = 'none'
+    missionList.innerHTML = ''
 
     this.state.missions.forEach((mission, index) => {
-      const card = this.createMissionCard(mission, index);
-      missionList.appendChild(card);
-    });
+      const card = this.createMissionCard(mission, index)
+      missionList.appendChild(card)
+    })
   }
 
   createMissionCard(mission, index) {
-    const card = document.createElement('div');
-    card.className = 'mission-card';
-    card.setAttribute('data-index', index);
+    const card = document.createElement('div')
+    card.className = 'mission-card'
+    card.setAttribute('data-index', index)
 
-    const baseMultiplier = this.calculateBaseMultiplier(mission);
-    const baseGain = this.calculateBaseGain(mission);
-    const momentumRate = this.calculateMomentumRate(this.state.streaks[index], this.state.misses[index]);
-    const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index]);
+    const baseMultiplier = this.calculateBaseMultiplier(mission)
+    const baseGain = this.calculateBaseGain(mission)
+    const momentumRate = this.calculateMomentumRate(this.state.streaks[index], this.state.misses[index])
+    const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index])
 
     card.innerHTML = `
       <div class="mission-header">
@@ -298,32 +339,31 @@ class HabitTracker {
         <button class="btn btn-delete">Delete</button>
         <button class="btn btn-rename">Rename</button>
       </div>
-    `;
-
-    // Event listeners
-    const checkbox = card.querySelector('.mission-checkbox');
-    checkbox.addEventListener('change', () => {
-      this.state.checkedStates[index] = checkbox.checked;
-      card.querySelector('.mission-name').classList.toggle('completed', checkbox.checked);
-    });
+    `
+    const checkbox = card.querySelector('.mission-checkbox')
+    checkbox.onchange = () => {
+      if (checkbox.checked) this.addToDailyCoin(index)
+      else this.rollbackFromDailyCoin(index)
+      this.state.checkedStates[index] = checkbox.checked
+      card.querySelector('.mission-name').classList.toggle('completed', checkbox.checked)
+    }
 
     card.querySelectorAll('.param-input input').forEach(input => {
-      input.addEventListener('input', (e) => {
+      input.oninput = (e) => {
         if (e.target.value > 1) {
           e.target.value = 1
         }
-        this.updateParameter(index, e.target.dataset.param, e.target.value);
-      });
-    });
+        this.updateParameter(index, e.target.dataset.param, e.target.value)
+      }
+    })
 
-    card.querySelector('.btn-delete').addEventListener('click', () => this.deleteMission(index));
-    card.querySelector('.btn-rename').addEventListener('click', () => this.renameMission(index));
+    card.querySelector('.btn-delete').onclick = () => this.deleteMission(index)
+    card.querySelector('.btn-rename').onclick = () => this.renameMission(index)
 
-    return card;
+    return card
   }
 }
 
-// Initialize app
 document.addEventListener('DOMContentLoaded', () => {
-  new HabitTracker();
-});
+  new GritCoin()
+})
