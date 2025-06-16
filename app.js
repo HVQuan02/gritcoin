@@ -1,30 +1,30 @@
-// GritCoin params
 const SCI = 0.01
 const DEADLINE_HOUR = 22
-
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000
+const DEFAULT_WEEKLY_GOAL = 100
+const INIT_PIGGY_BANK = 0
+const INIT_WEEKLY_EARNED_COIN = 0
+const INIT_DAILY_EARNED_COIN = 0
 
 class StateManager {
   constructor() {
-    this.storageKeys = ["missions", "streaks", "checkedStates", "lastDeadlines", "misses"]
+    this.storageKeys = ["missions", "checkedStates", "streaks", "misses"]
     this.loadState()
   }
 
   loadState() {
-    [this.missions, this.streaks, this.checkedStates, this.lastDeadlines, this.misses] = 
+    [this.missions, this.checkedStates, this.streaks, this.misses] = 
       this.storageKeys.map(key => {
         const item = localStorage.getItem(key)
         return item ? JSON.parse(item) : []
       })
-    this.weeklyGoal = parseFloat(localStorage.getItem("weeklyGoal")) || 100
-    this.accumulatedCoin = parseFloat(localStorage.getItem("accumulatedCoin")) || 0
-    const isNoMission = !this.lastDeadlines.length;
-    const isPastDeadline = new Date() > new Date(this.lastDeadlines[0]);
-    if (isNoMission || isPastDeadline) {
-      this.dailyEarnedCoin = 0;
-    } else {
-      this.dailyEarnedCoin = parseFloat(localStorage.getItem("dailyEarnedCoin")) || 0;
-    }
+    this.lastDeadline = new Date(localStorage.getItem("lastDeadline")) // deadline for the last opened
+    this.weeklyGoal = parseFloat(localStorage.getItem("weeklyGoal")) || DEFAULT_WEEKLY_GOAL
+    this.piggyBank = parseFloat(localStorage.getItem("piggyBank")) || INIT_PIGGY_BANK
+    this.weeklyEarnedCoin = parseFloat(localStorage.getItem("weeklyEarnedCoin")) || INIT_WEEKLY_EARNED_COIN
+    this.dailyEarnedCoin = new Date() > this.lastDeadline
+      ? INIT_DAILY_EARNED_COIN
+      : parseFloat(localStorage.getItem("dailyEarnedCoin"))
   }
 
   saveState() {
@@ -32,7 +32,7 @@ class StateManager {
       localStorage.setItem(key, JSON.stringify(this[key]))
     })
     localStorage.setItem("weeklyGoal", this.weeklyGoal)
-    localStorage.setItem("accumulatedCoin", this.accumulatedCoin)
+    localStorage.setItem("accumulatedCoin", this.piggyBank)
     localStorage.setItem("dailyEarnedCoin", this.dailyEarnedCoin)
   }
 }
@@ -84,36 +84,26 @@ class GritCoin {
 
   updateMissionsOnAppOpen() {
     const now = new Date()
-    
-    this.state.missions.forEach((_, index) => {
-      const lastDeadline = this.state.lastDeadlines[index] ? 
-        new Date(this.state.lastDeadlines[index]) : null
-      const currentDeadline = this.getCurrentDeadline()
+    const lastDeadline = this.state.lastDeadline
+    this.state.lastDeadline = this.getCurrentDeadline()
+    if (lastDeadline.getTime() === 0) return    
+    const missGapInMs = now - lastDeadline
+    if (missGapInMs <= 0) return
 
-      this.state.lastDeadlines[index] = currentDeadline.toISOString()
-
-      if (!lastDeadline) {
+    this.state.missions.forEach((_, idx) => {
+      if (missGapInMs <= ONE_DAY_IN_MS && this.state.checkedStates[idx]) {
+        this.completeMission(idx)
         return
       }
 
-      const missGapInMs = now - lastDeadline
-
-      if (missGapInMs <= 0) return
-      
-      if (missGapInMs <= ONE_DAY_IN_MS && this.state.checkedStates[index]) {
-        this.completeMission(index)
-        return
-      }
-
-      // Calculate missed days
-      const daysMissed = this.state.misses[index] + 
+      const daysMissed = this.state.misses[idx] + 
         Math.floor(missGapInMs / ONE_DAY_IN_MS) + 
-        (!this.state.checkedStates[index] ? 1 : 0)
+        (!this.state.checkedStates[idx] ? 1 : 0)
 
       if (daysMissed >= 3) {
-        this.resetMission(index)
+        this.resetMission(idx)
       } else {
-        this.missMission(index, daysMissed)
+        this.missMission(idx, daysMissed)
       }
     })
   }
@@ -136,12 +126,12 @@ class GritCoin {
   }
 
   renderGritCoinDisplay() {
-    document.getElementById("accumulated-gritcoin").textContent = `Accumulated GritCoin: ${this.state.accumulatedCoin.toFixed(2)}`
+    document.getElementById("accumulated-gritcoin").textContent = `Accumulated GritCoin: ${this.state.piggyBank.toFixed(2)}`
     document.getElementById("daily-gritcoin").textContent = `Daily Earned GritCoin: ${this.state.dailyEarnedCoin.toFixed(2)}`
   }
 
   notifyIfGoalAchieved() {
-    if (this.state.accumulatedCoin >= this.state.weeklyGoal) {
+    if (this.state.piggyBank >= this.state.weeklyGoal) {
       document.getElementById("goal-message").textContent = "🎉 Weekly Goal Achieved! 🎉"
     }
   }
@@ -150,7 +140,7 @@ class GritCoin {
     const mission = this.state.missions[index]
     const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index])
     this.state.dailyEarnedCoin += currentGain
-    this.state.accumulatedCoin += currentGain
+    this.state.piggyBank += currentGain
     this.renderGritCoinDisplay()
     this.notifyIfGoalAchieved()
   }
@@ -159,7 +149,7 @@ class GritCoin {
     const mission = this.state.missions[index]
     const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index])
     this.state.dailyEarnedCoin -= currentGain
-    this.state.accumulatedCoin -= currentGain
+    this.state.piggyBank -= currentGain
     this.renderGritCoinDisplay()
   }
 
@@ -212,7 +202,6 @@ class GritCoin {
     this.state.streaks.push(0)
     this.state.misses.push(0)
     this.state.checkedStates.push(false)
-    this.state.lastDeadlines.push(this.getCurrentDeadline().toISOString())
 
     document.getElementById("mission-form").reset()
     this.render()
@@ -221,7 +210,7 @@ class GritCoin {
   deleteMission(index) {
     if (!confirm("Delete this mission?")) return
     
-    ['missions', 'streaks', 'misses', 'checkedStates', 'lastDeadlines'].forEach(key => {
+    ['missions', 'checkedStates', 'streaks', 'misses'].forEach(key => {
       this.state[key].splice(index, 1)
     })
     this.render()
