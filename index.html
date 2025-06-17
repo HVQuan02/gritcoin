@@ -12,11 +12,14 @@
       <h1>🎯 GritCoin</h1>
       <div id="countdown" class="countdown"></div>
     </div>
-
-    <div class="weekly-goal-section">
-      <label>Weekly Goal (GritCoin): <input type="number" id="weekly-goal" min="1" value="100"></label>
-      <span id="accumulated-gritcoin">Accumulated GritCoin: 0</span>
-      <span id="daily-gritcoin">Today's GritCoin: 0</span>
+    <div class="progress-summary">
+      <div class="goal-row">
+        <label>Weekly Goal: <span id="weekly-goal">100</span></label>
+        <button id="change-weekly-goal">Change goal</button>
+      </div>
+      <label>Piggy Bank: <span id="piggy-bank">0</span></label>
+      <label>Weekly Earned GritCoin: <span id="weekly-earned-coin">0</span></label>
+      <label>Daily Earned GritCoin: <span id="daily-earned-coin">0</span></label>
     </div>
     <div id="goal-message"></div>
 

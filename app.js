@@ -1,304 +1,263 @@
-const SCI = 0.01
-const DEADLINE_HOUR = 22
-const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000
-const DEFAULT_WEEKLY_GOAL = 100
-const INIT_PIGGY_BANK = 0
-const INIT_WEEKLY_EARNED_COIN = 0
-const INIT_DAILY_EARNED_COIN = 0
+const SCI = 0.01;
+const DEADLINE_HOUR = 22;
+const DEFAULT_WEEKLY_GOAL = 100;
+const MAX_MISSED_DAYS = 2;
+const DECIMAL_PLACES = 2;
+
+const ONE_WEEK_IN_MS = 604800000;
+const ONE_DAY_IN_MS = 86400000;
+const ONE_HOUR_IN_MS = 3600000;
+const ONE_MINUTE_IN_MS = 60000;
+const ONE_SECOND_IN_MS = 1000;
 
 class StateManager {
   constructor() {
-    this.storageKeys = ["missions", "checkedStates", "streaks", "misses"]
-    this.loadState()
+    this.loadStates();
   }
 
-  loadState() {
-    [this.missions, this.checkedStates, this.streaks, this.misses] = 
-      this.storageKeys.map(key => {
-        const item = localStorage.getItem(key)
-        return item ? JSON.parse(item) : []
-      })
-    this.lastDeadline = new Date(localStorage.getItem("lastDeadline")) // deadline for the last opened
-    this.weeklyGoal = parseFloat(localStorage.getItem("weeklyGoal")) || DEFAULT_WEEKLY_GOAL
-    this.piggyBank = parseFloat(localStorage.getItem("piggyBank")) || INIT_PIGGY_BANK
-    this.weeklyEarnedCoin = parseFloat(localStorage.getItem("weeklyEarnedCoin")) || INIT_WEEKLY_EARNED_COIN
-    this.dailyEarnedCoin = new Date() > this.lastDeadline
-      ? INIT_DAILY_EARNED_COIN
-      : parseFloat(localStorage.getItem("dailyEarnedCoin"))
+  loadStates() {
+    this.missions = JSON.parse(localStorage.getItem("missions") || "[]");
+    this.weeklyDeadline = new Date(localStorage.getItem("weeklyDeadline"));
+    this.lastDeadline = new Date(localStorage.getItem("lastDeadline"));
+    this.weeklyGoal = parseFloat(localStorage.getItem("weeklyGoal")) || DEFAULT_WEEKLY_GOAL;
+    this.piggyBank = parseFloat(localStorage.getItem("piggyBank")) || 0;
+    this.weeklyEarnedCoins = parseFloat(localStorage.getItem("weeklyEarnedCoins")) || 0;
+    this.dailyEarnedCoins =
+      new Date() > this.lastDeadline ? 0 : parseFloat(localStorage.getItem("dailyEarnedCoins"));
+    this.countdownInterval = null;
   }
 
-  saveState() {
-    this.storageKeys.forEach(key => {
-      localStorage.setItem(key, JSON.stringify(this[key]))
-    })
-    localStorage.setItem("weeklyGoal", this.weeklyGoal)
-    localStorage.setItem("accumulatedCoin", this.piggyBank)
-    localStorage.setItem("dailyEarnedCoin", this.dailyEarnedCoin)
+  saveStates() {
+    localStorage.setItem("missions", JSON.stringify(this.missions));
+    localStorage.setItem("weeklyDeadline", this.weeklyDeadline.toISOString());
+    localStorage.setItem("lastDeadline", this.lastDeadline.toISOString());
+    localStorage.setItem("weeklyGoal", this.weeklyGoal);
+    localStorage.setItem("piggyBank", this.piggyBank);
+    localStorage.setItem("weeklyEarnedCoins", this.weeklyEarnedCoins);
+    localStorage.setItem("dailyEarnedCoins", this.dailyEarnedCoins);
   }
 }
 
 class GritCoin {
   constructor() {
-    this.state = new StateManager()
-    this.countdownInterval = null
-    this.init()
+    this.states = new StateManager();
+    this.init();
   }
 
   init() {
-    this.updateMissionsOnAppOpen()
-    this.setupEventListeners()
-    this.renderGritCoinDisplay()
-    this.render()
-    this.startCountdown()
-    
-    window.onbeforeunload = () => this.state.saveState()
+    this.updateStatesOnAppOpen();
+    this.notifyIfWeeklyGoalAchieved();
+
+    this.renderProgressSummary();
+    this.renderMissionList();
+    this.startCountdown();
+
+    this.setupEventListeners();
+
+    onbeforeunload = () => this.states.saveStates();
   }
 
   getCurrentDeadline() {
-    const now = new Date()
-    const deadline = new Date()
-    deadline.setHours(DEADLINE_HOUR, 0, 0, 0)
-    if (now > deadline) deadline.setDate(deadline.getDate() + 1)
-    return deadline
+    const now = new Date();
+    const deadline = new Date();
+    deadline.setHours(DEADLINE_HOUR, 0, 0, 0);
+    if (now > deadline) deadline.setDate(deadline.getDate() + 1);
+    return deadline;
   }
 
-  startCountdown() {
-    if (this.countdownInterval) clearInterval(this.countdownInterval)
-
-    const updateCountdown = () => {
-      const now = new Date()
-      const currentDeadline = this.getCurrentDeadline()
-      const timeLeft = currentDeadline - now
-
-      const hours = Math.floor((timeLeft / (60 * 60 * 1000)) % 24)
-      const minutes = Math.floor((timeLeft / (60 * 1000)) % 60)
-      const seconds = Math.floor((timeLeft / 1000) % 60)
-
-      document.getElementById("countdown").textContent = 
-        `⏰ Time left: ${hours}h ${minutes}m ${seconds}s ⏰`
-    }
-
-    updateCountdown()
-    this.countdownInterval = setInterval(updateCountdown, 1000)
+  completeMission(mission) {
+    mission.streak++;
+    mission.miss = 0;
+    mission.checkedState = false;
   }
 
-  updateMissionsOnAppOpen() {
-    const now = new Date()
-    const lastDeadline = this.state.lastDeadline
-    this.state.lastDeadline = this.getCurrentDeadline()
-    if (lastDeadline.getTime() === 0) return    
-    const missGapInMs = now - lastDeadline
-    if (missGapInMs <= 0) return
+  resetMission(mission) {
+    mission.streak = 0;
+    mission.miss = 0;
+    mission.checkedState = false;
+  }
 
-    this.state.missions.forEach((_, idx) => {
-      if (missGapInMs <= ONE_DAY_IN_MS && this.state.checkedStates[idx]) {
-        this.completeMission(idx)
-        return
+  missMission(mission, missedDays) {
+    mission.miss = missedDays;
+    mission.checkedState = false;
+  }
+
+  updateStatesOnAppOpen() {
+    const now = new Date();
+    const lastDeadline = this.states.lastDeadline;
+    this.states.lastDeadline = this.getCurrentDeadline();
+
+    if (lastDeadline.getTime() === 0) return; // first time open app, no states
+
+    const missGapInMs = now - lastDeadline;
+    if (missGapInMs <= 0) return;
+
+    this.states.missions.forEach((mission) => {
+      if (missGapInMs <= ONE_DAY_IN_MS && mission.checkedState) {
+        this.completeMission(mission);
+        return;
       }
 
-      const daysMissed = this.state.misses[idx] + 
-        Math.floor(missGapInMs / ONE_DAY_IN_MS) + 
-        (!this.state.checkedStates[idx] ? 1 : 0)
-
-      if (daysMissed >= 3) {
-        this.resetMission(idx)
-      } else {
-        this.missMission(idx, daysMissed)
-      }
-    })
+      const daysMissed =
+        mission.miss + Math.floor(missGapInMs / ONE_DAY_IN_MS) + !mission.checkedState;
+      if (daysMissed > MAX_MISSED_DAYS) this.resetMission(mission);
+      else if (mission.streak) this.missMission(mission, daysMissed);
+    });
   }
 
-  completeMission(index) {
-    this.state.streaks[index]++
-    this.state.misses[index] = 0
-    this.state.checkedStates[index] = false
+  notifyIfWeeklyGoalAchieved() {
+    if (this.states.missions.length === 0) return;
+
+    const now = new Date();
+    const meetsRequiredCoinTarget = this.states.weeklyEarnedCoins >= this.states.weeklyGoal;
+    const deadlineGap = now - this.states.weeklyDeadline;
+
+    if (deadlineGap < 0 && !meetsRequiredCoinTarget) return;
+
+    const successMessage =
+      "🎉 Congrats! You crushed your weekly goal!" +
+      "Time to reset, refocus, and rise again. " +
+      "Let’s make next week legendary. 💪";
+    const failureMessage =
+      "⏳ The week’s up, and the goal slipped away. " +
+      "But your grit doesn’t reset with the clock. " +
+      "Let’s regroup and come back stronger. 💡";
+
+    if (deadlineGap > ONE_DAY_IN_MS || !meetsRequiredCoinTarget)
+      document.getElementById("goal-message").textContent = failureMessage;
+    else document.getElementById("goal-message").textContent = successMessage;
+
+    this.states.weeklyEarnedCoins = 0;
+    this.states.weeklyDeadline = now + ONE_WEEK_IN_MS;
   }
 
-  missMission(index, missedDays) {
-    this.state.misses[index] = missedDays
-    this.state.checkedStates[index] = false
-  }
-
-  resetMission(index) {
-    this.state.streaks[index] = 0
-    this.state.misses[index] = 0
-    this.state.checkedStates[index] = false
-  }
-
-  renderGritCoinDisplay() {
-    document.getElementById("accumulated-gritcoin").textContent = `Accumulated GritCoin: ${this.state.piggyBank.toFixed(2)}`
-    document.getElementById("daily-gritcoin").textContent = `Daily Earned GritCoin: ${this.state.dailyEarnedCoin.toFixed(2)}`
-  }
-
-  notifyIfGoalAchieved() {
-    if (this.state.piggyBank >= this.state.weeklyGoal) {
-      document.getElementById("goal-message").textContent = "🎉 Weekly Goal Achieved! 🎉"
-    }
-  }
-
-  addToDailyCoin(index) {
-    const mission = this.state.missions[index]
-    const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index])
-    this.state.dailyEarnedCoin += currentGain
-    this.state.piggyBank += currentGain
-    this.renderGritCoinDisplay()
-    this.notifyIfGoalAchieved()
-  }
-  
-  rollbackFromDailyCoin(index) {
-    const mission = this.state.missions[index]
-    const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index])
-    this.state.dailyEarnedCoin -= currentGain
-    this.state.piggyBank -= currentGain
-    this.renderGritCoinDisplay()
-  }
-
-  calculateBaseMultiplier(mission) {
-    const avoidanceMultiplier = mission.Avoidance >= 0.8 ? 1.1 : 1
-    const ltRoiMultiplier = mission.LT_ROI >= 0.8 ? 1.2 : 1
-    return avoidanceMultiplier * ltRoiMultiplier
+  renderProgressSummary() {
+    document.getElementById("weekly-goal").textContent =
+      this.states.weeklyGoal.toFixed(DECIMAL_PLACES);
+    document.getElementById("piggy-bank").textContent =
+      this.states.piggyBank.toFixed(DECIMAL_PLACES);
+    document.getElementById("weekly-earned-coin").textContent =
+      this.states.weeklyEarnedCoins.toFixed(DECIMAL_PLACES);
+    document.getElementById("daily-earned-coin").textContent =
+      this.states.dailyEarnedCoins.toFixed(DECIMAL_PLACES);
   }
 
   calculateBaseGain(mission) {
-    const baseMultiplier = this.calculateBaseMultiplier(mission)
-    const flowValue = (mission.LT_ROI <= 0.5 || mission.Avoidance <= 0.5) 
-      ? mission.Flow * 0.5 
-      : mission.Flow
-
-    return (mission.LT_ROI * 4 + mission.Avoidance * 3 + flowValue * 2 + mission.ST_ROI * 1) * baseMultiplier
+    const flowValue =
+      mission.lt_roi <= 0.5 || mission.avoidance <= 0.5 ? mission.flow / 2 : mission.flow;
+    return mission.lt_roi * 4 + mission.avoidance * 3 + flowValue * 2 + mission.st_roi;
   }
 
-  calculateMomentumRate(streak, miss) {
-    const effectiveStreak = Math.max(streak - miss, 0)
-    return Math.pow(1 + SCI, effectiveStreak)
+  calculateGainMultiplier(mission) {
+    const avoidanceMultiplier = mission.avoidance >= 0.8 ? 1.1 : 1;
+    const ltRoiMultiplier = mission.lt_roi >= 0.8 ? 1.2 : 1;
+    return avoidanceMultiplier * ltRoiMultiplier;
   }
 
-  calculateCurrentGain(mission, streak, miss) {
-    const baseGain = this.calculateBaseGain(mission)
-    if (miss > 2) return baseGain
-    return baseGain * this.calculateMomentumRate(streak, miss)
+  calculateMomentumRate(mission) {
+    const effectiveStreak = Math.max(mission.streak - mission.miss, 0);
+    return Math.pow(1 + SCI, effectiveStreak);
   }
 
-  setupEventListeners() {
-    document.getElementById("mission-form").onsubmit = (e) => {
-      e.preventDefault()
-      this.addMission()
-    }
-    document.getElementById("weekly-goal").oninput = (e) => {
-      this.state.weeklyGoal = parseFloat(e.target.value)
-    }
+  getGainSnapshot(mission) {
+    const baseGain = this.calculateBaseGain(mission);
+    const gainMultiplier = this.calculateGainMultiplier(mission);
+    const momentumRate = this.calculateMomentumRate(mission);
+    const gainWithMultiplier = baseGain * gainMultiplier;
+    return {
+      baseGain,
+      gainMultiplier: gainMultiplier,
+      momentumRate,
+      accumulativeGain:
+        mission.miss > MAX_MISSED_DAYS ? gainWithMultiplier : gainWithMultiplier * momentumRate,
+    };
   }
 
-  addMission() {
-    const formData = {
-      Name: document.getElementById("name").value.trim(),
-      LT_ROI: parseFloat(document.getElementById("lt-roi").value),
-      Avoidance: parseFloat(document.getElementById("avoidance").value),
-      Flow: parseFloat(document.getElementById("flow").value),
-      ST_ROI: parseFloat(document.getElementById("st-roi").value)
-    }
+  addCoinsOnCheckingMission(mission) {
+    const { accumulativeGain } = this.getGainSnapshot(mission);
+    this.states.piggyBank += accumulativeGain;
+    this.states.weeklyEarnedCoins += accumulativeGain;
+    this.states.dailyEarnedCoins += accumulativeGain;
+    this.renderProgressSummary();
+  }
 
-    this.state.missions.push(formData)
-    this.state.streaks.push(0)
-    this.state.misses.push(0)
-    this.state.checkedStates.push(false)
+  rollbackCoinsOnUncheckingMission(mission) {
+    const { accumulativeGain } = this.getGainSnapshot(mission);
+    this.states.piggyBank -= accumulativeGain;
+    this.states.weeklyEarnedCoins -= accumulativeGain;
+    this.states.dailyEarnedCoins -= accumulativeGain;
+    this.renderProgressSummary();
+  }
 
-    document.getElementById("mission-form").reset()
-    this.render()
+  renderMissionOnParameterUpdate(mission, index) {
+    const { baseGain, gainMultiplier, accumulativeGain } = this.getGainSnapshot(mission);
+    document.querySelector(`[data-index="${index}"] .base-gain`).textContent =
+      baseGain.toFixed(DECIMAL_PLACES);
+    document.querySelector(`[data-index="${index}"] .base-multiplier`).textContent =
+      gainMultiplier.toFixed(DECIMAL_PLACES);
+    document.querySelector(`[data-index="${index}"] .accumulative-gain`).textContent =
+      accumulativeGain.toFixed(DECIMAL_PLACES);
   }
 
   deleteMission(index) {
-    if (!confirm("Delete this mission?")) return
-    
-    ['missions', 'checkedStates', 'streaks', 'misses'].forEach(key => {
-      this.state[key].splice(index, 1)
-    })
-    this.render()
+    if (!confirm("Delete this mission?")) return;
+    this.states.missions.splice(index, 1);
+    this.renderMissionList();
   }
 
-  renameMission(index) {
-    const newName = prompt("Rename mission:", this.state.missions[index].Name)?.trim()
+  renameMission(mission) {
+    const newName = prompt("Rename mission:", mission.name)?.trim();
     if (newName) {
-      this.state.missions[index].Name = newName
-      this.render()
+      mission.name = newName;
+      this.renderMissionList();
     }
-  }
-
-  updateParameter(index, param, value) {
-    this.state.missions[index][param] = parseFloat(value)
-    this.renderMissionDisplay(index)
-  }
-
-  renderMissionDisplay(index) {
-    const mission = this.state.missions[index]
-    const baseMultiplier = this.calculateBaseMultiplier(mission)
-    const baseGain = this.calculateBaseGain(mission)
-    const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index])
-
-    document.querySelector(`[data-index="${index}"] .base-multiplier`).textContent = baseMultiplier.toFixed(2)
-    document.querySelector(`[data-index="${index}"] .base-gain`).textContent = baseGain.toFixed(2)
-    document.querySelector(`[data-index="${index}"] .current-gain`).textContent = currentGain.toFixed(2)
-  }
-
-  render() {
-    const missionList = document.getElementById("mission-list")
-    const emptyState = document.getElementById("empty-state")
-    
-    if (this.state.missions.length === 0) {
-      missionList.style.display = 'none'
-      emptyState.style.display = 'block'
-      return
-    }
-
-    missionList.style.display = 'grid'
-    emptyState.style.display = 'none'
-    missionList.innerHTML = ''
-
-    this.state.missions.forEach((mission, index) => {
-      const card = this.createMissionCard(mission, index)
-      missionList.appendChild(card)
-    })
   }
 
   createMissionCard(mission, index) {
-    const card = document.createElement('div')
-    card.className = 'mission-card'
-    card.setAttribute('data-index', index)
+    const card = document.createElement("div");
+    card.className = "mission-card";
+    card.setAttribute("data-index", index);
 
-    const baseMultiplier = this.calculateBaseMultiplier(mission)
-    const baseGain = this.calculateBaseGain(mission)
-    const momentumRate = this.calculateMomentumRate(this.state.streaks[index], this.state.misses[index])
-    const currentGain = this.calculateCurrentGain(mission, this.state.streaks[index], this.state.misses[index])
+    const { baseGain, gainMultiplier, momentumRate, accumulativeGain } =
+      this.getGainSnapshot(mission);
 
     card.innerHTML = `
       <div class="mission-header">
-        <input type="checkbox" class="mission-checkbox" ${this.state.checkedStates[index] ? 'checked' : ''}>
-        <div class="mission-name ${this.state.checkedStates[index] ? 'completed' : ''}">${mission.Name}</div>
+        <input type="checkbox" class="mission-checkbox" ${mission.checkedState ? "checked" : ""}>
+        <div class="mission-name ${mission.checkedState ? "completed" : ""}">${mission.name}</div>
       </div>
       
       <div class="stats-row">
-        <span class="streak">🔥 Streak: ${this.state.streaks[index]}</span>
-        <span class="misses">💀 Misses: ${this.state.misses[index]}</span>
+        <span class="streak">🔥 Streak: ${mission.streak}</span>
+        <span class="misses">💀 Misses: ${mission.miss}</span>
       </div>
 
       <div class="params-section">
         <h4>Parameters</h4>
         <div class="params-grid">
           <div class="param-input">
-            <label>LT_ROI:</label>
-            <input type="number" step="0.01" min="0" max="1" value="${mission.LT_ROI}" data-param="LT_ROI">
+            <label>lt_roi:</label>
+            <input type="number" step="0.01" min="0" max="1" value="${
+              mission.lt_roi
+            }" data-param="lt_roi">
           </div>
           <div class="param-input">
-            <label>Avoidance:</label>
-            <input type="number" step="0.01" min="0" max="1" value="${mission.Avoidance}" data-param="Avoidance">
+            <label>avoidance:</label>
+            <input type="number" step="0.01" min="0" max="1" value="${
+              mission.avoidance
+            }" data-param="avoidance">
           </div>
           <div class="param-input">
-            <label>Flow:</label>
-            <input type="number" step="0.01" min="0" max="1" value="${mission.Flow}" data-param="Flow">
+            <label>flow:</label>
+            <input type="number" step="0.01" min="0" max="1" value="${
+              mission.flow
+            }" data-param="flow">
           </div>
           <div class="param-input">
-            <label>ST_ROI:</label>
-            <input type="number" step="0.01" min="0" max="1" value="${mission.ST_ROI}" data-param="ST_ROI">
+            <label>st_roi:</label>
+            <input type="number" step="0.01" min="0" max="1" value="${
+              mission.st_roi
+            }" data-param="st_roi">
           </div>
         </div>
       </div>
@@ -306,20 +265,22 @@ class GritCoin {
       <div class="gains-section">
         <div class="gains-grid">
           <div class="gain-item">
-            <div>Base Multiplier</div>
-            <div class="gain-value base-multiplier">${baseMultiplier.toFixed(2)}</div>
+            <div>Base Gain</div>
+            <div class="gain-value base-gain">${baseGain.toFixed(DECIMAL_PLACES)}</div>
           </div>
           <div class="gain-item">
-            <div>Base Gain</div>
-            <div class="gain-value base-gain">${baseGain.toFixed(2)}</div>
+            <div>Base Multiplier</div>
+            <div class="gain-value base-multiplier">${gainMultiplier.toFixed(DECIMAL_PLACES)}</div>
           </div>
           <div class="gain-item">
             <div>Momentum Rate</div>
-            <div class="gain-value">${momentumRate.toFixed(2)}</div>
+            <div class="gain-value">${momentumRate.toFixed(DECIMAL_PLACES)}</div>
           </div>
           <div class="gain-item">
-            <div>Current Gain</div>
-            <div class="gain-value current-gain">${currentGain.toFixed(2)}</div>
+            <div>Accumulative Gain</div>
+            <div class="gain-value accumulative-gain">${accumulativeGain.toFixed(
+              DECIMAL_PLACES
+            )}</div>
           </div>
         </div>
       </div>
@@ -328,31 +289,118 @@ class GritCoin {
         <button class="btn btn-delete">Delete</button>
         <button class="btn btn-rename">Rename</button>
       </div>
-    `
-    const checkbox = card.querySelector('.mission-checkbox')
+    `;
+
+    const checkbox = card.querySelector(".mission-checkbox");
     checkbox.onchange = () => {
-      if (checkbox.checked) this.addToDailyCoin(index)
-      else this.rollbackFromDailyCoin(index)
-      this.state.checkedStates[index] = checkbox.checked
-      card.querySelector('.mission-name').classList.toggle('completed', checkbox.checked)
+      if (checkbox.checked) this.addCoinsOnCheckingMission(mission);
+      else this.rollbackCoinsOnUncheckingMission(mission);
+      mission.checkedState = checkbox.checked;
+      card.querySelector(".mission-name").classList.toggle("completed", checkbox.checked);
+    };
+
+    card.querySelectorAll(".param-input input").forEach((input) => {
+      input.oninput = (e) => {
+        if (checkbox.checked) {
+          alert("Please uncheck the mission first before adjusting parameters.");
+          e.target.value = mission[e.target.dataset.param];
+          return;
+        }
+
+        if (e.target.value > 1) e.target.value = 1;
+        else if (e.target.value < 0) e.target.value = 0;
+
+        mission[e.target.dataset.param] = parseFloat(e.target.value);
+        this.renderMissionOnParameterUpdate(mission, index);
+      };
+    });
+
+    card.querySelector(".btn-delete").onclick = () => this.deleteMission(index);
+    card.querySelector(".btn-rename").onclick = () => this.renameMission(mission);
+
+    return card;
+  }
+
+  renderMissionList() {
+    const missionList = document.getElementById("mission-list");
+    const emptyState = document.getElementById("empty-state");
+
+    if (this.states.missions.length === 0) {
+      missionList.style.display = "none";
+      emptyState.style.display = "block";
+      return;
     }
 
-    card.querySelectorAll('.param-input input').forEach(input => {
-      input.oninput = (e) => {
-        if (e.target.value > 1) {
-          e.target.value = 1
-        }
-        this.updateParameter(index, e.target.dataset.param, e.target.value)
-      }
-    })
+    missionList.style.display = "grid";
+    emptyState.style.display = "none";
+    missionList.innerHTML = "";
 
-    card.querySelector('.btn-delete').onclick = () => this.deleteMission(index)
-    card.querySelector('.btn-rename').onclick = () => this.renameMission(index)
+    this.states.missions.forEach((mission, index) => {
+      const card = this.createMissionCard(mission, index);
+      missionList.appendChild(card);
+    });
+  }
 
-    return card
+  startCountdown() {
+    const formatTime = (h, m, s) => {
+      const [hh, mm, ss] = [h, m, s].map((t) => t.toString().padStart(2, "0"));
+      return `⏰ ${hh}:${mm}:${ss} ⏰`;
+    };
+
+    const updateCountdown = () => {
+      const now = new Date();
+      const currentDeadline = this.getCurrentDeadline();
+      const timeLeft = currentDeadline - now;
+
+      const h = Math.floor(timeLeft / ONE_HOUR_IN_MS) % 24;
+      const m = Math.floor(timeLeft / ONE_MINUTE_IN_MS) % 60;
+      const s = Math.floor(timeLeft / ONE_SECOND_IN_MS) % 60;
+
+      document.getElementById("countdown").textContent = formatTime(h, m, s);
+    };
+
+    if (this.states.countdownInterval) clearInterval(this.states.countdownInterval);
+
+    updateCountdown();
+    this.states.countdownInterval = setInterval(updateCountdown, 1000);
+  }
+
+  addMission() {
+    this.states.missions.push({
+      name: document.getElementById("name").value.trim(),
+      lt_roi: parseFloat(document.getElementById("lt-roi").value),
+      avoidance: parseFloat(document.getElementById("avoidance").value),
+      flow: parseFloat(document.getElementById("flow").value),
+      st_roi: parseFloat(document.getElementById("st-roi").value),
+      checkedState: false,
+      streak: 0,
+      miss: 0,
+    });
+    document.getElementById("mission-form").reset();
+    this.renderMissionList();
+  }
+
+  setWeeklyDeadline() {
+    if (this.states.missions.length === 1) {
+      this.states.weeklyDeadline = new Date(Date.now() + ONE_WEEK_IN_MS);
+    }
+  }
+
+  setupEventListeners() {
+    document.getElementById("mission-form").onsubmit = (e) => {
+      e.preventDefault();
+      this.addMission();
+      this.setWeeklyDeadline(); // only set when add first mission
+    };
+
+    document.getElementById("change-weekly-goal").onclick = () => {
+      const newWeeklyGoal = parseFloat(prompt("New weekly goal:", this.states.weeklyGoal));
+      this.states.weeklyGoal = newWeeklyGoal || this.states.weeklyGoal;
+      document.getElementById("weekly-goal").textContent = this.states.weeklyGoal;
+    };
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  new GritCoin()
-})
+document.addEventListener("DOMContentLoaded", () => {
+  new GritCoin();
+});
