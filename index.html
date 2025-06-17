@@ -1,64 +1,89 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="style.css">
-  <title>GritCoin</title>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🎯 GritCoin</h1>
-      <div id="countdown" class="countdown"></div>
-    </div>
-    <div class="progress-summary">
-      <div class="goal-row">
-        <label>Weekly Goal: <span id="weekly-goal">100</span></label>
-        <button id="change-weekly-goal">Change goal</button>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+    <title>GritCoin</title>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🎯 GritCoin</h1>
+        <div id="countdown" class="countdown"></div>
       </div>
-      <label>Piggy Bank: <span id="piggy-bank">0</span></label>
-      <label>Weekly Earned GritCoin: <span id="weekly-earned-coin">0</span></label>
-      <label>Daily Earned GritCoin: <span id="daily-earned-coin">0</span></label>
-    </div>
-    <div id="goal-message"></div>
 
-    <form class="mission-form" id="mission-form">
-      <h2>➕ Add New Mission</h2>
-      <div class="form-grid">
-        <div class="input-group">
-          <label>Mission Name</label>
-          <input type="text" id="name" placeholder="Enter mission name..." required>
-        </div>
-        
-        <div class="param-grid">
-          <div class="input-group">
-            <label>LT_ROI (Long-term ROI)</label>
-            <input type="number" id="lt-roi" step="0.01" min="0" max="1" value="0" required>
+      <div class="progress-container">
+        <div class="progress-summary">
+          <div class="goal-header">
+            <div class="goal-row">
+              <div>
+                <h2 class="goal-title">Weekly Goal</h2>
+                <div class="goal-value" id="weekly-goal">100</div>
+              </div>
+              <button class="change-goal-btn" id="change-weekly-goal">Change Goal</button>
+            </div>
           </div>
-          <div class="input-group">
-            <label>Avoidance</label>
-            <input type="number" id="avoidance" step="0.01" min="0" max="1" value="0" required>
+
+          <div class="stats-grid">
+            <div class="stat-card piggy-bank">
+              <div class="stat-label">Piggy Bank</div>
+              <div class="stat-value" id="piggy-bank">0</div>
+            </div>
+
+            <div class="stat-card weekly-earned">
+              <div class="stat-label">Weekly Earned</div>
+              <div class="stat-value" id="weekly-earned-coin">0</div>
+            </div>
+
+            <div class="stat-card daily-earned">
+              <div class="stat-label">Daily Earned</div>
+              <div class="stat-value" id="daily-earned-coin">0</div>
+            </div>
           </div>
-          <div class="input-group">
-            <label>Flow</label>
-            <input type="number" id="flow" step="0.01" min="0" max="1" value="0" required>
-          </div>
-          <div class="input-group">
-            <label>ST_ROI (Short-term ROI)</label>
-            <input type="number" id="st-roi" step="0.01" min="0" max="1" value="0" required>
+
+          <div id="goal-message" class="success">
+            🎉 Great progress! Keep pushing towards your goal!
           </div>
         </div>
       </div>
-      <button type="submit" class="add-btn">Add Mission</button>
-    </form>
 
-    <div id="mission-list" class="missions-grid"></div>
-    <div id="empty-state" class="empty-state" style="display: none;">
-      <p>🚀 No missions yet. Add your first habit above!</p>
+      <form class="mission-form" id="mission-form">
+        <h2>➕ Add New Mission</h2>
+        <div class="form-grid">
+          <div class="input-group">
+            <label>Mission Name</label>
+            <input type="text" id="name" placeholder="Enter mission name..." required />
+          </div>
+
+          <div class="param-grid">
+            <div class="input-group">
+              <label>LT_ROI (Long-term ROI)</label>
+              <input type="number" id="lt-roi" step="0.01" min="0" max="1" value="0" required />
+            </div>
+            <div class="input-group">
+              <label>Avoidance</label>
+              <input type="number" id="avoidance" step="0.01" min="0" max="1" value="0" required />
+            </div>
+            <div class="input-group">
+              <label>Flow</label>
+              <input type="number" id="flow" step="0.01" min="0" max="1" value="0" required />
+            </div>
+            <div class="input-group">
+              <label>ST_ROI (Short-term ROI)</label>
+              <input type="number" id="st-roi" step="0.01" min="0" max="1" value="0" required />
+            </div>
+          </div>
+        </div>
+        <button type="submit" class="add-btn">Add Mission</button>
+      </form>
+
+      <div id="mission-list" class="missions-grid"></div>
+      <div id="empty-state" class="empty-state" style="display: none">
+        <p>🚀 No missions yet. Add your first habit above!</p>
+      </div>
     </div>
-  </div>
 
-  <script src="app.js"></script>
-</body>
+    <script src="app.js"></script>
+  </body>
 </html>
