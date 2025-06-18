@@ -1,4 +1,3 @@
-// Constants - centralized và semantic
 const CONFIG = {
   SCI: 0.01,
   DEADLINE_HOUR: 22,
@@ -14,7 +13,6 @@ const CONFIG = {
   },
 };
 
-// Storage abstraction - tách biệt logic storage
 class Storage {
   static get(key, defaultValue = null) {
     try {
@@ -34,17 +32,27 @@ class Storage {
   }
 
   static getDate(key) {
-    const stored = localStorage.getItem(key);
-    return stored ? new Date(stored) : new Date(0);
+    try {
+      const stored = localStorage.getItem(key);
+      if (!stored) return new Date(0);
+
+      const date = new Date(stored);
+      return isNaN(date.getTime()) ? new Date(0) : date;
+    } catch {
+      return new Date(0);
+    }
   }
 
   static setDate(key, date) {
-    localStorage.setItem(key, date.toISOString());
+    try {
+      localStorage.setItem(key, date.toISOString());
+    } catch (error) {
+      console.error("Storage failed:", error);
+    }
   }
 }
 
-// Mission logic - pure functions, testable
-class MissionLogic {
+class Mission {
   static calculateBaseGain(mission) {
     const { lt_roi, avoidance, flow, st_roi } = mission;
     const flowValue = lt_roi <= 0.5 || avoidance <= 0.5 ? flow / 2 : flow;
@@ -52,9 +60,9 @@ class MissionLogic {
   }
 
   static calculateGainMultiplier(mission) {
+    const ltRoiBonus = mission.lt_roi >= 0.8 ? 1.1 : 1;
     const avoidanceBonus = mission.avoidance >= 0.8 ? 1.1 : 1;
-    const ltRoiBonus = mission.lt_roi >= 0.8 ? 1.2 : 1;
-    return avoidanceBonus * ltRoiBonus;
+    return ltRoiBonus * avoidanceBonus;
   }
 
   static calculateMomentumRate(mission) {
@@ -96,7 +104,6 @@ class MissionLogic {
   }
 }
 
-// Time utilities
 class TimeUtils {
   static getCurrentDeadline() {
     const now = new Date();
@@ -108,17 +115,18 @@ class TimeUtils {
     return deadline;
   }
 
+  static pad(n) {
+    return n.toString().padStart(2, "0");
+  }
+
   static formatCountdown(timeLeft) {
     const hours = Math.floor(timeLeft / CONFIG.TIME.HOUR_MS) % 24;
     const minutes = Math.floor(timeLeft / CONFIG.TIME.MINUTE_MS) % 60;
     const seconds = Math.floor(timeLeft / CONFIG.TIME.SECOND_MS) % 60;
-
-    const pad = (n) => n.toString().padStart(2, "0");
-    return `⏰ ${pad(hours)}:${pad(minutes)}:${pad(seconds)} ⏰`;
+    return `⏰ ${TimeUtils.pad(hours)}:${TimeUtils.pad(minutes)}:${TimeUtils.pad(seconds)} ⏰`;
   }
 }
 
-// State management - clean separation
 class AppState {
   constructor() {
     this.load();
@@ -127,20 +135,18 @@ class AppState {
   load() {
     this.missions = Storage.get("missions", []);
     this.weeklyDeadline = Storage.getDate("weeklyDeadline");
-    this.lastDeadline = Storage.getDate("lastDeadline");
+    this.dailyDeadline = Storage.getDate("dailyDeadline");
     this.weeklyGoal = Storage.get("weeklyGoal", CONFIG.DEFAULT_WEEKLY_GOAL);
     this.piggyBank = Storage.get("piggyBank", 0);
     this.weeklyEarnedCoins = Storage.get("weeklyEarnedCoins", 0);
-
-    // Reset daily coins if new day
     const now = new Date();
-    this.dailyEarnedCoins = now > this.lastDeadline ? 0 : Storage.get("dailyEarnedCoins", 0);
+    this.dailyEarnedCoins = now > this.dailyDeadline ? 0 : Storage.get("dailyEarnedCoins", 0);
   }
 
   save() {
     Storage.set("missions", this.missions);
     Storage.setDate("weeklyDeadline", this.weeklyDeadline);
-    Storage.setDate("lastDeadline", this.lastDeadline);
+    Storage.setDate("dailyDeadline", this.dailyDeadline);
     Storage.set("weeklyGoal", this.weeklyGoal);
     Storage.set("piggyBank", this.piggyBank);
     Storage.set("weeklyEarnedCoins", this.weeklyEarnedCoins);
@@ -165,7 +171,6 @@ class AppState {
   }
 }
 
-// UI management - focused responsibility
 class UIManager {
   constructor(state) {
     this.state = state;
@@ -190,14 +195,18 @@ class UIManager {
 
   showGoalMessage(message) {
     const element = document.getElementById("goal-message");
-    if (element) element.textContent = message;
+    if (element) {
+      element.textContent = message;
+    }
   }
 
   renderMissionList() {
     const missionList = document.getElementById("mission-list");
     const emptyState = document.getElementById("empty-state");
 
-    if (!missionList || !emptyState) return;
+    if (!missionList || !emptyState) {
+      return;
+    }
 
     if (this.state.missions.length === 0) {
       missionList.style.display = "none";
@@ -220,7 +229,7 @@ class UIManager {
     card.className = "mission-card";
     card.dataset.index = index;
 
-    const gainData = MissionLogic.getGainSnapshot(mission);
+    const gainData = Mission.getGainSnapshot(mission);
 
     card.innerHTML = this.getMissionCardHTML(mission, gainData);
     this.setupMissionCardEvents(card, mission, index);
@@ -297,20 +306,17 @@ class UIManager {
   }
 
   setupMissionCardEvents(card, mission, index) {
-    // Checkbox event
     const checkbox = card.querySelector(".mission-checkbox");
     checkbox.addEventListener("change", () => {
       this.onMissionToggle(mission, checkbox.checked, card);
     });
 
-    // Parameter inputs
     card.querySelectorAll(".param-input input").forEach((input) => {
       input.addEventListener("input", (e) => {
         this.onParameterChange(mission, e.target, index, checkbox.checked);
       });
     });
 
-    // Action buttons
     card.querySelector(".btn-delete").addEventListener("click", () => {
       this.onDeleteMission(index);
     });
@@ -321,7 +327,7 @@ class UIManager {
   }
 
   onMissionToggle(mission, isChecked, card) {
-    const gainData = MissionLogic.getGainSnapshot(mission);
+    const gainData = Mission.getGainSnapshot(mission);
 
     if (isChecked) {
       this.state.addCoins(gainData.accumulativeGain);
@@ -341,17 +347,16 @@ class UIManager {
       return;
     }
 
-    // Clamp value
     const value = Math.max(0, Math.min(1, parseFloat(input.value) || 0));
     input.value = value;
     mission[input.dataset.param] = value;
 
-    this.updateMissionGains(index);
+    this.renderMissionGains(index);
   }
 
-  updateMissionGains(index) {
+  renderMissionGains(index) {
     const mission = this.state.missions[index];
-    const gainData = MissionLogic.getGainSnapshot(mission);
+    const gainData = Mission.getGainSnapshot(mission);
     const card = document.querySelector(`[data-index="${index}"]`);
 
     if (!card) return;
@@ -401,7 +406,6 @@ class UIManager {
   }
 }
 
-// Main application - orchestration
 class GritCoin {
   constructor() {
     this.state = new AppState();
@@ -415,7 +419,6 @@ class GritCoin {
     this.render();
     this.setupEventListeners();
 
-    // Auto-save on page unload
     window.addEventListener("beforeunload", () => {
       this.state.save();
     });
@@ -423,24 +426,24 @@ class GritCoin {
 
   updateStatesOnAppOpen() {
     const now = new Date();
-    const lastDeadline = this.state.lastDeadline;
-    this.state.lastDeadline = TimeUtils.getCurrentDeadline();
+    const dailyDeadline = this.state.dailyDeadline;
+    this.state.dailyDeadline = TimeUtils.getCurrentDeadline();
 
-    if (lastDeadline.getTime() === 0) return; // First time opening
+    if (dailyDeadline.getTime() === 0) return; // First time opening, hence no states to be updated
 
-    const missGap = now - lastDeadline;
+    const missGap = now - dailyDeadline;
     if (missGap <= 0) return;
 
     this.state.missions.forEach((mission) => {
       if (missGap <= CONFIG.TIME.DAY_MS && mission.checkedState) {
-        MissionLogic.completeMission(mission);
+        Mission.completeMission(mission);
         return;
       }
 
       const daysMissed =
         mission.miss + Math.floor(missGap / CONFIG.TIME.DAY_MS) + (mission.checkedState ? 0 : 1);
 
-      MissionLogic.updateMissionOnMiss(mission, daysMissed);
+      Mission.updateMissionOnMiss(mission, daysMissed);
     });
   }
 
@@ -493,7 +496,7 @@ class GritCoin {
   changeWeeklyGoal() {
     const newGoal = parseFloat(prompt("New weekly goal:", this.state.weeklyGoal));
     if (newGoal && newGoal > 0) {
-      this.state.weeklyGoal = newGoal.toFixed(2);
+      this.state.weeklyGoal = newGoal;
       this.ui.renderProgressSummary();
     }
   }
@@ -518,7 +521,6 @@ class GritCoin {
   }
 }
 
-// Initialize app
 document.addEventListener("DOMContentLoaded", () => {
   new GritCoin();
 });
