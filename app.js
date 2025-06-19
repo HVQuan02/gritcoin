@@ -297,8 +297,8 @@ class UIManager {
         (param) => `
       <div class="param-input">
         <label>${param}:</label>
-        <input type="number" step="0.01" min="0" max="1" 
-               value="${mission[param]}" data-param="${param}">
+        <input type="number" min="0" max="1" step="0.01" 
+               value="${mission[param]}" data-param="${param}" required>
       </div>
     `
       )
