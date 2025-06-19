@@ -312,13 +312,13 @@ class UIManager {
     });
 
     card.querySelectorAll(".param-input input").forEach((input) => {
-      input.addEventListener("input", (e) => {
-        this.onParameterChange(mission, e.target, index, checkbox.checked);
+      input.addEventListener("blur", (e) => {
+        this.onParameterBlur(mission, e.target, index, checkbox.checked);
       });
     });
 
     card.querySelector(".btn-delete").addEventListener("click", () => {
-      this.onDeleteMission(index);
+      this.onDeleteMission(mission, index);
     });
 
     card.querySelector(".btn-rename").addEventListener("click", () => {
@@ -340,17 +340,21 @@ class UIManager {
     this.renderProgressSummary();
   }
 
-  onParameterChange(mission, input, index, isChecked) {
+  onParameterBlur(mission, input, index, isChecked) {
     if (isChecked) {
       alert("Please uncheck the mission first before adjusting parameters.");
       input.value = mission[input.dataset.param];
       return;
     }
 
-    const value = Math.max(0, Math.min(1, parseFloat(input.value) || 0));
-    input.value = value;
-    mission[input.dataset.param] = value;
+    const value = parseFloat(input.value);
+    if (isNaN(value) || value < 0 || value > 1) {
+      input.value = mission[input.dataset.param];
+      return;
+    }
 
+    const roundedValue = parseFloat(value.toFixed(CONFIG.DECIMAL_PLACES));
+    input.value = mission[input.dataset.param] = roundedValue;
     this.renderMissionGains(index);
   }
 
@@ -370,9 +374,14 @@ class UIManager {
     );
   }
 
-  onDeleteMission(index) {
+  onDeleteMission(mission, index) {
     if (confirm("Delete this mission?")) {
+      const { accumulativeGain } = Mission.getGainSnapshot(mission);
+      if (mission.checkedState) {
+        this.state.removeCoins(accumulativeGain);
+      }
       this.state.missions.splice(index, 1);
+      this.renderProgressSummary();
       this.renderMissionList();
     }
   }

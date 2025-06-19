@@ -1,4 +1,3 @@
-del task while in checked must reduce coin bank
 them analytics
 Them identity motivation vao grticoin
 them badge tier ranking

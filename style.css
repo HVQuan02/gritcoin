@@ -50,6 +50,18 @@ body::before {
   }
 }
 
+/* Chrome, Safari, Edge */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
 .container {
   max-width: 1200px;
   margin: 0 auto;
@@ -404,7 +416,7 @@ body::before {
   outline: none;
   border-color: #667eea;
   box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.2);
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 30, 0.95);
   transform: translateY(-2px);
 }
 
