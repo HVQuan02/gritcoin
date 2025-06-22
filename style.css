@@ -516,7 +516,7 @@ input[type="number"]::-webkit-inner-spin-button {
   font-size: 1.1rem;
   display: inline-block;
   box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
-  margin-top: 20px; /* Added for spacing */
+  margin-bottom: 30px;
 }
 
 .deviation-info,

@@ -248,7 +248,10 @@ class AppState {
     this.#weeklyGoal = Storage.get("weeklyGoal", CONFIG.DEFAULT_WEEKLY_GOAL);
     this.#piggyBank = Storage.get("piggyBank", 0);
     this.#weeklyEarnedCoins = Storage.get("weeklyEarnedCoins", 0);
-    this.#motivationQuote = Storage.get("motivationQuote", "");
+    this.#motivationQuote = Storage.get(
+      "motivationQuote",
+      "🔥 I am built, not born. ⚔️ Relentless is my default. 🔥"
+    );
 
     const now = new Date();
     this.#dailyEarnedCoins = now > this.#dailyDeadline ? 0 : Storage.get("dailyEarnedCoins", 0);
