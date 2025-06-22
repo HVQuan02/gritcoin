@@ -7,9 +7,9 @@
     <title>⚡GritCoin</title>
   </head>
   <body>
-    <div class="container">
-      <div class="header">
-        <h1>🎯 GritCoin</h1>
+    <main class="container">
+      <header class="header">
+        <h1>GritCoin</h1>
         <div class="quote-container">
           <div class="quote-marquee">
             <span class="quote-text" id="motivation-quote"
@@ -18,10 +18,11 @@
           </div>
         </div>
         <button class="change-quote-btn" id="change-quote">Change Quote</button>
+        <br />
         <div id="countdown" class="countdown"></div>
-      </div>
+      </header>
 
-      <div class="progress-container">
+      <section class="progress-container">
         <div class="progress-summary">
           <div class="goal-header">
             <div class="goal-row">
@@ -54,90 +55,105 @@
             🎉 Great progress! Keep pushing towards your goal!
           </div>
         </div>
-      </div>
+      </section>
 
-      <form class="mission-form" id="mission-form">
-        <h2>➕ Add New Mission</h2>
-        <div class="form-grid">
-          <div class="input-group">
-            <label>Mission Name</label>
-            <input type="text" id="name" name="name" placeholder="Enter mission name..." required />
+      <section class="mission-form-container">
+        <form class="mission-form" id="mission-form">
+          <h2>➕ Add New Mission</h2>
+          <div class="form-grid">
+            <div class="input-group">
+              <label for="name">Mission Name</label>
+              <input
+                type="text"
+                id="name"
+                name="name"
+                placeholder="Enter mission name..."
+                required
+              />
+            </div>
+
+            <div class="param-grid">
+              <div class="input-group">
+                <label for="lt-roi">LT_ROI (Long-term ROI)</label>
+                <input
+                  type="number"
+                  id="lt-roi"
+                  name="lt-roi"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value="0"
+                  required
+                />
+              </div>
+              <div class="input-group">
+                <label for="avoidance">Avoidance</label>
+                <input
+                  type="number"
+                  id="avoidance"
+                  name="avoidance"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value="0"
+                  required
+                />
+              </div>
+              <div class="input-group">
+                <label for="flow">Flow</label>
+                <input
+                  type="number"
+                  id="flow"
+                  name="flow"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value="0"
+                  required
+                />
+              </div>
+              <div class="input-group">
+                <label for="st-roi">ST_ROI (Short-term ROI)</label>
+                <input
+                  type="number"
+                  id="st-roi"
+                  name="st-roi"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value="0"
+                  required
+                />
+              </div>
+            </div>
+
+            <div class="time-grid">
+              <div class="input-group">
+                <label for="scheduledStart">Scheduled Start Time</label>
+                <input
+                  type="time"
+                  id="scheduledStart"
+                  name="scheduledStart"
+                  value="06:00"
+                  required
+                />
+              </div>
+              <div class="input-group">
+                <label for="scheduledEnd">Scheduled End Time</label>
+                <input type="time" id="scheduledEnd" name="scheduledEnd" value="09:00" required />
+              </div>
+            </div>
           </div>
+          <button type="submit" class="add-btn">Add Mission</button>
+        </form>
+      </section>
 
-          <div class="param-grid">
-            <div class="input-group">
-              <label>LT_ROI (Long-term ROI)</label>
-              <input
-                type="number"
-                id="lt-roi"
-                name="lt-roi"
-                min="0"
-                max="1"
-                step="0.01"
-                value="0"
-                required
-              />
-            </div>
-            <div class="input-group">
-              <label>Avoidance</label>
-              <input
-                type="number"
-                id="avoidance"
-                name="avoidance"
-                min="0"
-                max="1"
-                step="0.01"
-                value="0"
-                required
-              />
-            </div>
-            <div class="input-group">
-              <label>Flow</label>
-              <input
-                type="number"
-                id="flow"
-                name="flow"
-                min="0"
-                max="1"
-                step="0.01"
-                value="0"
-                required
-              />
-            </div>
-            <div class="input-group">
-              <label>ST_ROI (Short-term ROI)</label>
-              <input
-                type="number"
-                id="st-roi"
-                name="st-roi"
-                min="0"
-                max="1"
-                step="0.01"
-                value="0"
-                required
-              />
-            </div>
-          </div>
+      <section id="mission-list" class="missions-grid"></section>
 
-          <div class="time-grid">
-            <div class="input-group">
-              <label>Scheduled Start Time</label>
-              <input type="time" id="scheduledStart" name="scheduledStart" value="06:00" required />
-            </div>
-            <div class="input-group">
-              <label>Scheduled End Time</label>
-              <input type="time" id="scheduledEnd" name="scheduledEnd" value="09:00" required />
-            </div>
-          </div>
-        </div>
-        <button type="submit" class="add-btn">Add Mission</button>
-      </form>
-
-      <div id="mission-list" class="missions-grid"></div>
       <div id="empty-state" class="empty-state" style="display: none">
         <p>🚀 No missions yet. Add your first habit above!</p>
       </div>
-    </div>
+    </main>
 
     <script src="app.js"></script>
   </body>

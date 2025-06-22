@@ -1,24 +1,24 @@
-const CONFIG = {
+// Constants & Configuration
+const CONFIG = Object.freeze({
   SCI: 0.01,
   DEADLINE_HOUR: 22,
   DEFAULT_WEEKLY_GOAL: 100,
   MAX_MISSED_DAYS: 2,
   DECIMAL_PLACES: 2,
-  TIME: {
+  ON_TIME_THRESHOLD: 30,
+  MAX_PUNISH: 0.2,
+  TIME: Object.freeze({
     WEEK_MS: 7 * 24 * 60 * 60 * 1000,
     DAY_MS: 24 * 60 * 60 * 1000,
     HOUR_MS: 60 * 60 * 1000,
     MINUTE_MS: 60 * 1000,
     SECOND_MS: 1000,
-  },
-  ON_TIME: {
-    THRESHOLD: 30,
-  },
-  MAX_PUNISH: 0.2,
-};
+  }),
+});
 
+// Utility Classes
 class Storage {
-  static get(key, defaultValue = null) {
+  static #safeGet(key, defaultValue = null) {
     try {
       const item = localStorage.getItem(key);
       return item ? JSON.parse(item) : defaultValue;
@@ -27,12 +27,20 @@ class Storage {
     }
   }
 
-  static set(key, value) {
+  static #safeSet(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch (error) {
-      console.error("Storage failed:", error);
+      console.error(`Storage failed for ${key}:`, error);
     }
+  }
+
+  static get(key, defaultValue) {
+    return this.#safeGet(key, defaultValue);
+  }
+
+  static set(key, value) {
+    this.#safeSet(key, value);
   }
 
   static getDate(key) {
@@ -48,39 +56,91 @@ class Storage {
   }
 
   static setDate(key, date) {
-    try {
-      localStorage.setItem(key, date.toISOString());
-    } catch (error) {
-      console.error("Storage failed:", error);
-    }
+    this.#safeSet(key, date.toISOString());
   }
 }
 
+class TimeUtils {
+  static getCurrentDeadline() {
+    const now = new Date();
+    const deadline = new Date();
+    deadline.setHours(CONFIG.DEADLINE_HOUR, 0, 0, 0);
+
+    if (now > deadline) {
+      deadline.setDate(deadline.getDate() + 1);
+    }
+
+    return deadline;
+  }
+
+  static #pad(n) {
+    return n.toString().padStart(2, "0");
+  }
+
+  static formatTime(time) {
+    const absTime = Math.abs(time);
+    const hours = Math.floor(absTime / CONFIG.TIME.HOUR_MS) % 24;
+    const minutes = Math.floor(absTime / CONFIG.TIME.MINUTE_MS) % 60;
+    const seconds = Math.floor(absTime / CONFIG.TIME.SECOND_MS) % 60;
+    const sign = time >= 0 ? "+" : "-";
+
+    return `${sign}${this.#pad(hours)}:${this.#pad(minutes)}:${this.#pad(seconds)}`;
+  }
+
+  static getElapsedTime(mission) {
+    return mission.actualEnd ? 0 : Date.now() - mission.actualStart;
+  }
+
+  static createTimeDate(timeStr) {
+    const [hours, minutes] = timeStr.split(":");
+    const date = new Date();
+    date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    return date;
+  }
+
+  static getTimeDeviation(mission) {
+    if (!mission.actualStart || !mission.scheduledStart) return 0;
+    const scheduledTime = this.createTimeDate(mission.scheduledStart);
+    return mission.actualStart - scheduledTime;
+  }
+
+  static getActualDuration(mission) {
+    if (!mission.actualStart || !mission.actualEnd) return 0;
+    return mission.actualEnd - mission.actualStart;
+  }
+
+  static getScheduledDuration(mission) {
+    if (!mission.scheduledStart || !mission.scheduledEnd) return 0;
+    const scheduledStart = this.createTimeDate(mission.scheduledStart);
+    const scheduledEnd = this.createTimeDate(mission.scheduledEnd);
+    return scheduledEnd - scheduledStart;
+  }
+}
+
+// Mission Logic
 class Mission {
-  static calculateBaseGain(mission) {
+  static #calculateBaseGain(mission) {
     const { lt_roi, avoidance, flow, st_roi } = mission;
     const flowValue = lt_roi <= 0.5 || avoidance <= 0.5 ? flow / 2 : flow;
     return lt_roi * 4 + avoidance * 3 + flowValue * 2 + st_roi;
   }
 
-  static calculateBaseMultiplier(mission) {
+  static #calculateBaseMultiplier(mission) {
     const ltRoiBonus = mission.lt_roi >= 0.8 ? 1.1 : 1;
     const avoidanceBonus = mission.avoidance >= 0.8 ? 1.1 : 1;
     return ltRoiBonus * avoidanceBonus;
   }
 
-  static calculateMomentumRate(mission) {
+  static #calculateMomentumRate(mission) {
     const effectiveStreak = Math.max(mission.streak - mission.miss, 0);
     return Math.pow(1 + CONFIG.SCI, effectiveStreak);
   }
 
-  static calculateTimeAdherence(mission) {
-    if (!mission.scheduledStart || !mission.actualStart) {
-      return 1.0;
-    }
+  static #calculateTimeAdherence(mission) {
+    if (!mission.scheduledStart || !mission.actualStart) return 1.0;
 
     const timeDeviation = TimeUtils.getTimeDeviation(mission) / CONFIG.TIME.MINUTE_MS;
-    const x = timeDeviation / CONFIG.ON_TIME.THRESHOLD;
+    const x = timeDeviation / CONFIG.ON_TIME_THRESHOLD;
 
     if (x <= 1) {
       return 1 + (1 - x) / 10;
@@ -88,15 +148,13 @@ class Mission {
 
     const maxLate = AppState.getDailyDeadline() - TimeUtils.getScheduledDuration(mission);
     const punishFactor =
-      (Math.min(timeDeviation, maxLate) - CONFIG.ON_TIME.THRESHOLD) /
-      (maxLate - CONFIG.ON_TIME.THRESHOLD);
+      (Math.min(timeDeviation, maxLate) - CONFIG.ON_TIME_THRESHOLD) /
+      (maxLate - CONFIG.ON_TIME_THRESHOLD);
     return 1.0 - punishFactor * CONFIG.MAX_PUNISH;
   }
 
-  static calculateDurationAdherence(mission) {
-    if (!mission.actualStart || !mission.actualEnd) {
-      return 1.0;
-    }
+  static #calculateDurationAdherence(mission) {
+    if (!mission.actualStart || !mission.actualEnd) return 1.0;
 
     const x = TimeUtils.getActualDuration(mission) / TimeUtils.getScheduledDuration(mission);
 
@@ -106,12 +164,29 @@ class Mission {
     return 1 + Math.pow(x - 1, 0.5) * 0.5;
   }
 
+  static createMission(formData) {
+    return {
+      name: formData.name.trim(),
+      lt_roi: parseFloat(formData.lt_roi) || 0,
+      avoidance: parseFloat(formData.avoidance) || 0,
+      flow: parseFloat(formData.flow) || 0,
+      st_roi: parseFloat(formData.st_roi) || 0,
+      scheduledStart: formData.scheduledStart || "00:06",
+      scheduledEnd: formData.scheduledEnd || "00:09",
+      actualStart: null,
+      actualEnd: null,
+      checkedState: false,
+      streak: 0,
+      miss: 0,
+    };
+  }
+
   static getGainSnapshot(mission) {
-    const baseGain = this.calculateBaseGain(mission);
-    const gainMultiplier = this.calculateBaseMultiplier(mission);
-    const timeAdherence = this.calculateTimeAdherence(mission);
-    const durationAdherence = this.calculateDurationAdherence(mission);
-    const momentumRate = this.calculateMomentumRate(mission);
+    const baseGain = this.#calculateBaseGain(mission);
+    const gainMultiplier = this.#calculateBaseMultiplier(mission);
+    const timeAdherence = this.#calculateTimeAdherence(mission);
+    const durationAdherence = this.#calculateDurationAdherence(mission);
+    const momentumRate = this.#calculateMomentumRate(mission);
     const gainWithMultiplier = baseGain * gainMultiplier * timeAdherence * durationAdherence;
 
     return {
@@ -134,117 +209,136 @@ class Mission {
     } else if (mission.streak > 0) {
       mission.miss = missedDays;
     }
-    mission.checkedState = false;
-    mission.actualStart = null;
-    mission.actualEnd = null;
+
+    this.#resetMissionState(mission);
   }
 
   static completeMission(mission) {
     mission.streak++;
     mission.miss = 0;
+    this.#resetMissionState(mission);
+  }
+
+  static #resetMissionState(mission) {
     mission.checkedState = false;
     mission.actualStart = null;
     mission.actualEnd = null;
   }
 }
 
-class TimeUtils {
-  static getCurrentDeadline() {
-    const now = new Date();
-    const deadline = new Date();
-    deadline.setHours(CONFIG.DEADLINE_HOUR, 0, 0, 0);
-    if (now > deadline) {
-      deadline.setDate(deadline.getDate() + 1);
-    }
-    return deadline;
-  }
-
-  static pad(n) {
-    return n.toString().padStart(2, "0");
-  }
-
-  static formatTime(time) {
-    const absTime = Math.abs(time);
-    const hours = Math.floor(absTime / CONFIG.TIME.HOUR_MS) % 24;
-    const minutes = Math.floor(absTime / CONFIG.TIME.MINUTE_MS) % 60;
-    const seconds = Math.floor(absTime / CONFIG.TIME.SECOND_MS) % 60;
-    const sign = time >= 0 ? "+" : "-";
-    return `${sign}${TimeUtils.pad(hours)}:${TimeUtils.pad(minutes)}:${TimeUtils.pad(seconds)}`;
-  }
-
-  static getElapsedTime(mission) {
-    return mission.actualEnd ? 0 : Date.now() - mission.actualStart;
-  }
-
-  static createTimeDate = (timeStr) => {
-    const [hours, minutes] = timeStr.split(":");
-    const date = new Date();
-    date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-    return date;
-  };
-
-  static getTimeDeviation(mission) {
-    if (!mission.actualStart || !mission.scheduledStart) return 0;
-    const scheduledTime = TimeUtils.createTimeDate(mission.scheduledStart);
-    return mission.actualStart - scheduledTime;
-  }
-
-  static getActualDuration(mission) {
-    if (!mission.actualStart || !mission.actualEnd) return 0;
-    return mission.actualEnd - mission.actualStart;
-  }
-
-  static getScheduledDuration(mission) {
-    if (!mission.scheduledStart || !mission.scheduledEnd) return 0;
-    const scheduledStart = TimeUtils.createTimeDate(mission.scheduledStart);
-    const scheduledEnd = TimeUtils.createTimeDate(mission.scheduledEnd);
-    return scheduledEnd - scheduledStart;
-  }
-}
-
+// Application State
 class AppState {
+  #missions = [];
+  #weeklyDeadline = new Date(0);
+  #dailyDeadline = new Date(0);
+  #weeklyGoal = CONFIG.DEFAULT_WEEKLY_GOAL;
+  #piggyBank = 0;
+  #weeklyEarnedCoins = 0;
+  #dailyEarnedCoins = 0;
+  #motivationQuote = "";
+
   constructor() {
-    this.load();
+    this.#load();
   }
 
-  load() {
-    this.missions = Storage.get("missions", []);
-    this.weeklyDeadline = Storage.getDate("weeklyDeadline");
-    this.dailyDeadline = Storage.getDate("dailyDeadline");
-    this.weeklyGoal = Storage.get("weeklyGoal", CONFIG.DEFAULT_WEEKLY_GOAL);
-    this.piggyBank = Storage.get("piggyBank", 0);
-    this.weeklyEarnedCoins = Storage.get("weeklyEarnedCoins", 0);
-    this.motivationQuote = Storage.get("motivationQuote");
+  #load() {
+    this.#missions = Storage.get("missions", []);
+    this.#weeklyDeadline = Storage.getDate("weeklyDeadline");
+    this.#dailyDeadline = Storage.getDate("dailyDeadline");
+    this.#weeklyGoal = Storage.get("weeklyGoal", CONFIG.DEFAULT_WEEKLY_GOAL);
+    this.#piggyBank = Storage.get("piggyBank", 0);
+    this.#weeklyEarnedCoins = Storage.get("weeklyEarnedCoins", 0);
+    this.#motivationQuote = Storage.get("motivationQuote", "");
+
     const now = new Date();
-    this.dailyEarnedCoins = now > this.dailyDeadline ? 0 : Storage.get("dailyEarnedCoins", 0);
+    this.#dailyEarnedCoins = now > this.#dailyDeadline ? 0 : Storage.get("dailyEarnedCoins", 0);
   }
 
   save() {
-    Storage.set("missions", this.missions);
-    Storage.setDate("weeklyDeadline", this.weeklyDeadline);
-    Storage.setDate("dailyDeadline", this.dailyDeadline);
-    Storage.set("weeklyGoal", this.weeklyGoal);
-    Storage.set("piggyBank", this.piggyBank);
-    Storage.set("weeklyEarnedCoins", this.weeklyEarnedCoins);
-    Storage.set("dailyEarnedCoins", this.dailyEarnedCoins);
-    Storage.set("motivationQuote", this.motivationQuote);
+    const data = {
+      missions: this.#missions,
+      weeklyGoal: this.#weeklyGoal,
+      piggyBank: this.#piggyBank,
+      weeklyEarnedCoins: this.#weeklyEarnedCoins,
+      dailyEarnedCoins: this.#dailyEarnedCoins,
+      motivationQuote: this.#motivationQuote,
+    };
+
+    Object.entries(data).forEach(([key, value]) => Storage.set(key, value));
+    Storage.setDate("weeklyDeadline", this.#weeklyDeadline);
+    Storage.setDate("dailyDeadline", this.#dailyDeadline);
+  }
+
+  // Getters
+  get missions() {
+    return this.#missions;
+  }
+  get weeklyDeadline() {
+    return this.#weeklyDeadline;
+  }
+  get dailyDeadline() {
+    return this.#dailyDeadline;
+  }
+  get weeklyGoal() {
+    return this.#weeklyGoal;
+  }
+  get piggyBank() {
+    return this.#piggyBank;
+  }
+  get weeklyEarnedCoins() {
+    return this.#weeklyEarnedCoins;
+  }
+  get dailyEarnedCoins() {
+    return this.#dailyEarnedCoins;
+  }
+  get motivationQuote() {
+    return this.#motivationQuote;
+  }
+
+  // Setters
+  set weeklyGoal(value) {
+    this.#weeklyGoal = value;
+  }
+  set motivationQuote(value) {
+    this.#motivationQuote = value;
+  }
+  set dailyDeadline(value) {
+    this.#dailyDeadline = value;
   }
 
   addCoins(amount) {
-    this.piggyBank += amount;
-    this.weeklyEarnedCoins += amount;
-    this.dailyEarnedCoins += amount;
+    this.#piggyBank += amount;
+    this.#weeklyEarnedCoins += amount;
+    this.#dailyEarnedCoins += amount;
   }
 
   removeCoins(amount) {
-    this.piggyBank -= amount;
-    this.weeklyEarnedCoins -= amount;
-    this.dailyEarnedCoins -= amount;
+    this.#piggyBank -= amount;
+    this.#weeklyEarnedCoins -= amount;
+    this.#dailyEarnedCoins -= amount;
+  }
+
+  addMission(mission) {
+    this.#missions.push(mission);
+
+    // Set weekly deadline for first mission
+    if (this.#missions.length === 1) {
+      this.#weeklyDeadline = new Date(Date.now() + CONFIG.TIME.WEEK_MS);
+    }
+  }
+
+  removeMission(index) {
+    this.#missions.splice(index, 1);
+  }
+
+  hasMissionNameExisted(missionName) {
+    const processedName = missionName.trim().toLowerCase();
+    return this.#missions.some((mission) => mission.name.trim().toLowerCase() === processedName);
   }
 
   resetWeeklyProgress() {
-    this.weeklyEarnedCoins = 0;
-    this.weeklyDeadline = new Date(Date.now() + CONFIG.TIME.WEEK_MS);
+    this.#weeklyEarnedCoins = 0;
+    this.#weeklyDeadline = new Date(Date.now() + CONFIG.TIME.WEEK_MS);
   }
 
   static getDailyDeadline() {
@@ -252,23 +346,37 @@ class AppState {
   }
 }
 
+// UI Management
 class UIManager {
+  #state;
+  #dailyDeadlineInterval = null;
+  #progressIntervals = new Map();
+
   constructor(state) {
-    this.state = state;
-    this.dailyDeadlineInterval = null;
-    this.progressIntervals = new Map();
+    this.#state = state;
+  }
+
+  #getElement(id) {
+    return document.getElementById(id);
+  }
+
+  #createElement(tag, className = "", content = "") {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (content) element.innerHTML = content;
+    return element;
   }
 
   renderProgressSummary() {
     const elements = {
-      "weekly-goal": this.state.weeklyGoal,
-      "piggy-bank": this.state.piggyBank,
-      "weekly-earned-coin": this.state.weeklyEarnedCoins,
-      "daily-earned-coin": this.state.dailyEarnedCoins,
+      "weekly-goal": this.#state.weeklyGoal,
+      "piggy-bank": this.#state.piggyBank,
+      "weekly-earned-coin": this.#state.weeklyEarnedCoins,
+      "daily-earned-coin": this.#state.dailyEarnedCoins,
     };
 
     Object.entries(elements).forEach(([id, value]) => {
-      const element = document.getElementById(id);
+      const element = this.#getElement(id);
       if (element) {
         element.textContent = value.toFixed(CONFIG.DECIMAL_PLACES);
       }
@@ -276,28 +384,26 @@ class UIManager {
   }
 
   renderMotivationQuote() {
-    const quoteElement = document.getElementById("motivation-quote");
+    const quoteElement = this.#getElement("motivation-quote");
     if (quoteElement) {
-      quoteElement.textContent = this.state.motivationQuote;
+      quoteElement.textContent = this.#state.motivationQuote;
     }
   }
 
   showGoalMessage(message) {
-    const element = document.getElementById("goal-message");
+    const element = this.#getElement("goal-message");
     if (element) {
       element.textContent = message;
     }
   }
 
   renderMissionList() {
-    const missionList = document.getElementById("mission-list");
-    const emptyState = document.getElementById("empty-state");
+    const missionList = this.#getElement("mission-list");
+    const emptyState = this.#getElement("empty-state");
 
-    if (!missionList || !emptyState) {
-      return;
-    }
+    if (!missionList || !emptyState) return;
 
-    if (this.state.missions.length === 0) {
+    if (this.#state.missions.length === 0) {
       missionList.style.display = "none";
       emptyState.style.display = "block";
       return;
@@ -307,56 +413,38 @@ class UIManager {
     emptyState.style.display = "none";
     missionList.innerHTML = "";
 
-    this.state.missions.forEach((mission, index) => {
-      const card = this.createMissionCard(mission, index);
+    this.#state.missions.forEach((mission, index) => {
+      const card = this.#createMissionCard(mission, index);
       missionList.appendChild(card);
 
       if (mission.actualStart && !mission.actualEnd) {
-        this.startProgressTimer(mission, index);
+        this.#startProgressTimer(mission, index);
       }
     });
   }
 
-  createMissionCard(mission, index) {
-    const card = document.createElement("div");
-    card.className = "mission-card";
-    card.dataset.index = index;
-
-    const gainData = Mission.getGainSnapshot(mission);
-
-    card.innerHTML = this.getMissionCardHTML(mission, index, gainData);
-    this.setupMissionCardEvents(card, mission, index);
-
-    return card;
-  }
-
   addMissionCard(mission, index) {
-    const missionList = document.getElementById("mission-list");
-    const emptyState = document.getElementById("empty-state");
+    const missionList = this.#getElement("mission-list");
+    const emptyState = this.#getElement("empty-state");
 
-    if (!missionList || !emptyState) {
-      return;
-    }
+    if (!missionList || !emptyState) return;
 
-    // Hide empty state if this is the first mission
-    if (this.state.missions.length === 1) {
+    if (this.#state.missions.length === 1) {
       missionList.style.display = "grid";
       emptyState.style.display = "none";
     }
 
-    const card = this.createMissionCard(mission, index);
+    const card = this.#createMissionCard(mission, index);
     missionList.appendChild(card);
 
     if (mission.actualStart && !mission.actualEnd) {
-      this.startProgressTimer(mission, index);
+      this.#startProgressTimer(mission, index);
     }
   }
 
   removeMissionCard(index) {
     const card = document.querySelector(`.mission-card[data-index="${index}"]`);
-    if (card) {
-      card.remove();
-    }
+    card?.remove();
   }
 
   updateMissionCard(mission, index) {
@@ -364,15 +452,26 @@ class UIManager {
     if (!existingCard) return;
 
     const gainData = Mission.getGainSnapshot(mission);
-    existingCard.innerHTML = this.getMissionCardHTML(mission, index, gainData);
-    this.setupMissionCardEvents(existingCard, mission, index);
+    existingCard.innerHTML = this.#getMissionCardHTML(mission, index, gainData);
+    this.#setupMissionCardEvents(existingCard, mission, index);
 
     if (mission.actualStart && !mission.actualEnd) {
-      this.startProgressTimer(mission, index);
+      this.#startProgressTimer(mission, index);
     }
   }
 
-  getMissionCardHTML(mission, index, gainData) {
+  #createMissionCard(mission, index) {
+    const card = this.#createElement("div", "mission-card");
+    card.dataset.index = index;
+
+    const gainData = Mission.getGainSnapshot(mission);
+    card.innerHTML = this.#getMissionCardHTML(mission, index, gainData);
+    this.#setupMissionCardEvents(card, mission, index);
+
+    return card;
+  }
+
+  #getMissionCardHTML(mission, index, gainData) {
     const {
       baseGain,
       gainMultiplier,
@@ -416,63 +515,71 @@ class UIManager {
           }
         </div>
         <div class="progress-buttons">
-          ${
-            mission.actualStart && !mission.actualEnd
-              ? `<button class="btn btn-end-mission" data-mission-index="${index}">
-            End Mission
-          </button>`
-              : mission.actualEnd
-              ? ""
-              : `<button class="btn btn-start-mission" data-mission-index="${index}">
-            Start Mission
-            </button>`
-          }
+          ${this.#getProgressButtonHTML(mission, index)}
         </div>
       </div>
 
       <div class="params-section">
         <h4>Parameters</h4>
         <div class="params-grid">
-          ${this.createParamInputs(mission)}
+          ${this.#createParamInputs(mission)}
         </div>
       </div>
 
       <div class="gains-section">
         <div class="gains-grid">
-          <div class="gain-item">
-            <div>Base Gain</div>
-            <div class="gain-value base-gain">${baseGain.toFixed(CONFIG.DECIMAL_PLACES)}</div>
-          </div>
-          <div class="gain-item">
-            <div>Base Multiplier</div>
-            <div class="gain-value base-multiplier">${gainMultiplier.toFixed(
-              CONFIG.DECIMAL_PLACES
-            )}</div>
-          </div>
-          <div class="gain-item">
-            <div>Time Adherence</div>
-            <div class="gain-value">${timeAdherence.toFixed(CONFIG.DECIMAL_PLACES)}</div>
-          </div>
-          <div class="gain-item">
-            <div>Duration Adherence</div>
-            <div class="gain-value">${durationAdherence.toFixed(CONFIG.DECIMAL_PLACES)}</div>
-          </div>
-          <div class="gain-item">
-            <div>Momentum Rate</div>
-            <div class="gain-value">${momentumRate.toFixed(CONFIG.DECIMAL_PLACES)}</div>
-          </div>
-          <div class="gain-item">
-            <div>Accumulative Gain</div>
-            <div class="gain-value accumulative-gain">${accumulativeGain.toFixed(
-              CONFIG.DECIMAL_PLACES
-            )}</div>
-          </div>
+          ${this.#createGainsHTML(
+            baseGain,
+            gainMultiplier,
+            timeAdherence,
+            durationAdherence,
+            momentumRate,
+            accumulativeGain
+          )}
         </div>
       </div>
     `;
   }
 
-  createParamInputs(mission) {
+  #getProgressButtonHTML(mission, index) {
+    if (mission.actualStart && !mission.actualEnd) {
+      return `<button class="btn btn-end-mission" data-mission-index="${index}">End Mission</button>`;
+    } else if (!mission.actualEnd) {
+      return `<button class="btn btn-start-mission" data-mission-index="${index}">Start Mission</button>`;
+    }
+    return "";
+  }
+
+  #createGainsHTML(
+    baseGain,
+    gainMultiplier,
+    timeAdherence,
+    durationAdherence,
+    momentumRate,
+    accumulativeGain
+  ) {
+    const gains = [
+      { label: "Base Gain", value: baseGain, className: "base-gain" },
+      { label: "Base Multiplier", value: gainMultiplier, className: "base-multiplier" },
+      { label: "Time Adherence", value: timeAdherence },
+      { label: "Duration Adherence", value: durationAdherence },
+      { label: "Momentum Rate", value: momentumRate },
+      { label: "Accumulative Gain", value: accumulativeGain, className: "accumulative-gain" },
+    ];
+
+    return gains
+      .map(
+        ({ label, value, className = "" }) => `
+      <div class="gain-item">
+        <div>${label}</div>
+        <div class="gain-value ${className}">${value.toFixed(CONFIG.DECIMAL_PLACES)}</div>
+      </div>
+    `
+      )
+      .join("");
+  }
+
+  #createParamInputs(mission) {
     const params = ["lt_roi", "avoidance", "flow", "st_roi"];
     const paramInputs = params
       .map(
@@ -502,38 +609,35 @@ class UIManager {
     return paramInputs + timeInputs;
   }
 
-  setupMissionCardEvents(card, mission, index) {
+  #setupMissionCardEvents(card, mission, index) {
+    // Checkbox event
     const checkbox = card.querySelector(".mission-checkbox");
     checkbox.addEventListener("change", () => {
-      this.onMissionToggle(mission, checkbox.checked, card);
+      this.#onMissionToggle(mission, checkbox.checked, card);
     });
 
+    // Parameter inputs
     card.querySelectorAll(".param-input input").forEach((input) => {
       input.addEventListener("blur", (e) => {
-        this.onParameterBlur(mission, e.target, index, checkbox.checked);
+        this.#onParameterBlur(mission, e.target, index, checkbox.checked);
       });
     });
 
+    // Time inputs
     card.querySelectorAll(".time-input input").forEach((input) => {
       input.addEventListener("change", (e) => {
-        this.onTimeInputChange(mission, e.target, checkbox.checked);
+        this.#onTimeInputChange(mission, e.target, checkbox.checked);
       });
     });
 
+    // Mission control buttons
     const startButton = card.querySelector(".btn-start-mission");
-    if (startButton) {
-      startButton.addEventListener("click", () => {
-        this.onStartMission(mission, index);
-      });
-    }
-
     const endButton = card.querySelector(".btn-end-mission");
-    if (endButton) {
-      endButton.addEventListener("click", () => {
-        this.onEndMission(mission, index);
-      });
-    }
 
+    startButton?.addEventListener("click", () => this.#onStartMission(mission, index));
+    endButton?.addEventListener("click", () => this.#onEndMission(mission, index));
+
+    // Management buttons
     card.querySelector(".btn-delete").addEventListener("click", () => {
       this.onDeleteMission(mission, index);
     });
@@ -543,7 +647,7 @@ class UIManager {
     });
   }
 
-  onMissionToggle(mission, isChecked, card) {
+  #onMissionToggle(mission, isChecked, card) {
     if (mission.actualStart && !mission.actualEnd) {
       alert("You cannot check a mission while it is still active. Please end the mission first!");
       card.querySelector(".mission-checkbox").checked = false;
@@ -553,9 +657,9 @@ class UIManager {
     const { accumulativeGain } = Mission.getGainSnapshot(mission);
 
     if (isChecked) {
-      this.state.addCoins(accumulativeGain);
+      this.#state.addCoins(accumulativeGain);
     } else {
-      this.state.removeCoins(accumulativeGain);
+      this.#state.removeCoins(accumulativeGain);
     }
 
     mission.checkedState = isChecked;
@@ -563,7 +667,7 @@ class UIManager {
     this.renderProgressSummary();
   }
 
-  onParameterBlur(mission, input, index, isChecked) {
+  #onParameterBlur(mission, input, index, isChecked) {
     if (isChecked) {
       alert("Please uncheck the mission first before adjusting parameters!");
       input.value = mission[input.dataset.param];
@@ -578,10 +682,10 @@ class UIManager {
 
     const roundedValue = parseFloat(value.toFixed(CONFIG.DECIMAL_PLACES));
     input.value = mission[input.dataset.param] = roundedValue;
-    this.renderMissionGains(index);
+    this.#renderMissionGains(index);
   }
 
-  onTimeInputChange(mission, input, isChecked) {
+  #onTimeInputChange(mission, input, isChecked) {
     if (isChecked) {
       alert("Please uncheck the mission first before changing time!");
       input.value = mission[input.dataset.param];
@@ -597,21 +701,21 @@ class UIManager {
     mission[input.dataset.param] = timeValue;
   }
 
-  onStartMission(mission, index) {
+  #onStartMission(mission, index) {
     mission.actualStart = Date.now();
-    this.startProgressTimer(mission, index);
+    this.#startProgressTimer(mission, index);
     this.updateMissionCard(mission, index);
   }
 
-  onEndMission(mission, index) {
+  #onEndMission(mission, index) {
     mission.actualEnd = Date.now();
-    this.stopProgressTimer(index);
+    this.#stopProgressTimer(index);
     this.updateMissionCard(mission, index);
   }
 
-  startProgressTimer(mission, index) {
-    if (this.progressIntervals.has(index)) {
-      clearInterval(this.progressIntervals.get(index));
+  #startProgressTimer(mission, index) {
+    if (this.#progressIntervals.has(index)) {
+      clearInterval(this.#progressIntervals.get(index));
     }
 
     const startTime = Date.now();
@@ -625,42 +729,48 @@ class UIManager {
       }
     }, 1000);
 
-    this.progressIntervals.set(index, interval);
+    this.#progressIntervals.set(index, interval);
   }
 
-  stopProgressTimer(index) {
-    if (this.progressIntervals.has(index)) {
-      clearInterval(this.progressIntervals.get(index));
-      this.progressIntervals.delete(index);
+  #stopProgressTimer(index) {
+    if (this.#progressIntervals.has(index)) {
+      clearInterval(this.#progressIntervals.get(index));
+      this.#progressIntervals.delete(index);
     }
   }
 
-  renderMissionGains(index) {
-    const mission = this.state.missions[index];
+  #renderMissionGains(index) {
+    const mission = this.#state.missions[index];
     const gainData = Mission.getGainSnapshot(mission);
     const card = document.querySelector(`[data-index="${index}"]`);
 
     if (!card) return;
 
-    card.querySelector(".base-gain").textContent = gainData.baseGain.toFixed(CONFIG.DECIMAL_PLACES);
-    card.querySelector(".base-multiplier").textContent = gainData.gainMultiplier.toFixed(
-      CONFIG.DECIMAL_PLACES
-    );
-    card.querySelector(".accumulative-gain").textContent = gainData.accumulativeGain.toFixed(
-      CONFIG.DECIMAL_PLACES
-    );
+    const elements = {
+      ".base-gain": gainData.baseGain,
+      ".base-multiplier": gainData.gainMultiplier,
+      ".accumulative-gain": gainData.accumulativeGain,
+    };
+
+    Object.entries(elements).forEach(([selector, value]) => {
+      const element = card.querySelector(selector);
+      if (element) {
+        element.textContent = value.toFixed(CONFIG.DECIMAL_PLACES);
+      }
+    });
   }
 
   onDeleteMission(mission, index) {
-    if (confirm("Delete this mission?")) {
-      const { accumulativeGain } = Mission.getGainSnapshot(mission);
-      if (mission.checkedState) {
-        this.state.removeCoins(accumulativeGain);
-      }
-      this.state.missions.splice(index, 1);
-      this.removeMissionCard(index);
-      this.renderProgressSummary();
+    if (!confirm("Delete this mission?")) return;
+
+    const { accumulativeGain } = Mission.getGainSnapshot(mission);
+    if (mission.checkedState) {
+      this.#state.removeCoins(accumulativeGain);
     }
+
+    this.#state.removeMission(index);
+    this.removeMissionCard(index);
+    this.renderProgressSummary();
   }
 
   onRenameMission(mission, index) {
@@ -672,8 +782,8 @@ class UIManager {
   }
 
   startCountdown() {
-    if (this.dailyDeadlineInterval) {
-      clearInterval(this.dailyDeadlineInterval);
+    if (this.#dailyDeadlineInterval) {
+      clearInterval(this.#dailyDeadlineInterval);
     }
 
     const updateCountdown = () => {
@@ -681,46 +791,59 @@ class UIManager {
       const deadline = TimeUtils.getCurrentDeadline();
       const timeLeft = deadline - now;
 
-      const countdownElement = document.getElementById("countdown");
+      const countdownElement = this.#getElement("countdown");
       if (countdownElement) {
         countdownElement.textContent = `⌛ ${TimeUtils.formatTime(timeLeft)}`;
       }
     };
 
     updateCountdown();
-    this.dailyDeadlineInterval = setInterval(updateCountdown, 1000);
+    this.#dailyDeadlineInterval = setInterval(updateCountdown, 1000);
+  }
+
+  cleanup() {
+    if (this.#dailyDeadlineInterval) {
+      clearInterval(this.#dailyDeadlineInterval);
+    }
+    this.#progressIntervals.forEach((interval) => clearInterval(interval));
+    this.#progressIntervals.clear();
   }
 }
 
+// Main Application Class
 class GritCoin {
+  #state;
+  #ui;
+
   constructor() {
-    this.state = new AppState();
-    this.ui = new UIManager(this.state);
-    this.init();
+    this.#state = new AppState();
+    this.#ui = new UIManager(this.#state);
+    this.#init();
   }
 
-  init() {
-    this.updateStatesOnAppOpen();
-    this.checkWeeklyGoal();
-    this.render();
-    this.setupEventListeners();
+  #init() {
+    this.#updateStatesOnAppOpen();
+    this.#checkWeeklyGoal();
+    this.#render();
+    this.#setupEventListeners();
 
     window.addEventListener("beforeunload", () => {
-      this.state.save();
+      this.#state.save();
+      this.#ui.cleanup();
     });
   }
 
-  updateStatesOnAppOpen() {
+  #updateStatesOnAppOpen() {
     const now = new Date();
-    const dailyDeadline = this.state.dailyDeadline;
-    this.state.dailyDeadline = TimeUtils.getCurrentDeadline();
+    const dailyDeadline = this.#state.dailyDeadline;
+    this.#state.dailyDeadline = TimeUtils.getCurrentDeadline();
 
-    if (dailyDeadline.getTime() === 0) return; // First time opening, hence no states to be updated
+    if (dailyDeadline.getTime() === 0) return;
 
     const missGap = now - dailyDeadline;
     if (missGap <= 0) return;
 
-    this.state.missions.forEach((mission) => {
+    this.#state.missions.forEach((mission) => {
       if (missGap <= CONFIG.TIME.DAY_MS && mission.checkedState) {
         Mission.completeMission(mission);
         return;
@@ -733,108 +856,78 @@ class GritCoin {
     });
   }
 
-  checkWeeklyGoal() {
-    if (this.state.missions.length === 0) return;
+  #checkWeeklyGoal() {
+    if (this.#state.missions.length === 0) return;
 
     const now = new Date();
-    const deadlineGap = now - this.state.weeklyDeadline;
-    const goalMet = this.state.weeklyEarnedCoins >= this.state.weeklyGoal;
+    const deadlineGap = now - this.#state.weeklyDeadline;
+    const goalMet = this.#state.weeklyEarnedCoins >= this.#state.weeklyGoal;
 
     if (deadlineGap < 0 && !goalMet) return;
 
     const message =
       deadlineGap <= CONFIG.TIME.DAY_MS && goalMet
         ? "🎉 Congrats! You crushed your weekly goal! Time to reset, refocus, and rise again. Let's make next week legendary. 💪"
-        : "⏳ The week's up, and the goal slipped away. But your grit doesn't reset with the clock. Let's regroup and come back stronger. 💡";
-
-    this.ui.showGoalMessage(message);
-    this.state.resetWeeklyProgress();
+        : "⏳ The week's up, and an goal slipped away. But your grit doesn't reset with the clock. Let's regroup and come back stronger. 💡";
+    this.#ui.showGoalMessage(message);
+    this.#state.resetWeeklyProgress();
   }
 
-  render() {
-    this.ui.renderMotivationQuote();
-    this.ui.renderProgressSummary();
-    this.ui.renderMissionList();
-    this.ui.startCountdown();
+  #render() {
+    this.#ui.renderMotivationQuote();
+    this.#ui.renderProgressSummary();
+    this.#ui.renderMissionList();
+    this.#ui.startCountdown();
   }
 
-  addMission(formData) {
-    const mission = {
-      name: formData.name.trim(),
-      lt_roi: parseFloat(formData.lt_roi) || 0,
-      avoidance: parseFloat(formData.avoidance) || 0,
-      flow: parseFloat(formData.flow) || 0,
-      st_roi: parseFloat(formData.st_roi) || 0,
-      scheduledStart: formData.scheduledStart || "00:06",
-      scheduledEnd: formData.scheduledEnd || "00:09",
-      actualStart: null,
-      actualEnd: null,
-      checkedState: false,
-      streak: 0,
-      miss: 0,
-    };
-
-    this.state.missions.push(mission);
-
-    // Set weekly deadline for first mission
-    if (this.state.missions.length === 1) {
-      this.state.weeklyDeadline = new Date(Date.now() + CONFIG.TIME.WEEK_MS);
-    }
-
-    this.ui.addMissionCard(mission, this.state.missions.length - 1);
+  #addMission(formData) {
+    const mission = Mission.createMission(formData);
+    this.#state.addMission(mission);
+    this.#ui.addMissionCard(mission, this.#state.missions.length - 1);
   }
 
-  changeWeeklyGoal() {
-    const newGoal = parseFloat(prompt("New weekly goal:", this.state.weeklyGoal));
+  #changeWeeklyGoal() {
+    const newGoal = parseFloat(prompt("New weekly goal:", this.#state.weeklyGoal));
     if (newGoal && newGoal > 0) {
-      this.state.weeklyGoal = newGoal;
-      this.ui.renderProgressSummary();
+      this.#state.weeklyGoal = newGoal;
+      this.#ui.renderProgressSummary();
     }
   }
 
-  changeMotivationQuote() {
-    const newQuote = prompt("New quote:", this.state.motivationQuote)?.trim();
+  #changeMotivationQuote() {
+    const newQuote = prompt("New quote:", this.#state.motivationQuote)?.trim();
     if (newQuote) {
-      this.state.motivationQuote = newQuote;
-      this.ui.renderMotivationQuote();
+      this.#state.motivationQuote = newQuote;
+      this.#ui.renderMotivationQuote();
     }
   }
 
-  hasMissionNameExisted(missionName) {
-    const processedMissionName = missionName.trim().toLowerCase();
-    return this.state.missions.find(
-      (mission) => mission.name.trim().toLowerCase() === processedMissionName
-    );
-  }
-
-  setupEventListeners() {
+  #setupEventListeners() {
     const form = document.getElementById("mission-form");
     if (form) {
       form.addEventListener("submit", (e) => {
         e.preventDefault();
         const formData = new FormData(form);
         const missionName = formData.get("name").trim();
-        if (this.hasMissionNameExisted(missionName)) {
+
+        if (this.#state.hasMissionNameExisted(missionName)) {
           alert("A mission with this name already exists. Please choose a different name!");
           return;
         }
-        this.addMission(Object.fromEntries(formData));
+
+        this.#addMission(Object.fromEntries(formData));
         form.reset();
       });
     }
 
     const goalButton = document.getElementById("change-weekly-goal");
     if (goalButton) {
-      goalButton.addEventListener("click", () => {
-        this.changeWeeklyGoal();
-      });
+      goalButton.addEventListener("click", () => this.#changeWeeklyGoal());
     }
 
     const quoteButton = document.getElementById("change-quote");
     if (quoteButton) {
-      quoteButton.addEventListener("click", () => {
-        this.changeMotivationQuote();
-      });
+      quoteButton.addEventListener("click", () => this.#changeMotivationQuote());
     }
   }
 }
