@@ -11,6 +11,10 @@ const CONFIG = {
     MINUTE_MS: 60 * 1000,
     SECOND_MS: 1000,
   },
+  ON_TIME: {
+    THRESHOLD: 30,
+  },
+  MAX_PUNISH: 0.2,
 };
 
 class Storage {
@@ -59,7 +63,7 @@ class Mission {
     return lt_roi * 4 + avoidance * 3 + flowValue * 2 + st_roi;
   }
 
-  static calculateGainMultiplier(mission) {
+  static calculateBaseMultiplier(mission) {
     const ltRoiBonus = mission.lt_roi >= 0.8 ? 1.1 : 1;
     const avoidanceBonus = mission.avoidance >= 0.8 ? 1.1 : 1;
     return ltRoiBonus * avoidanceBonus;
@@ -70,15 +74,51 @@ class Mission {
     return Math.pow(1 + CONFIG.SCI, effectiveStreak);
   }
 
+  static calculateTimeAdherence(mission) {
+    if (!mission.scheduledStart || !mission.actualStart) {
+      return 1.0;
+    }
+
+    const timeDeviation = TimeUtils.getTimeDeviation(mission) / CONFIG.TIME.MINUTE_MS;
+    const x = timeDeviation / CONFIG.ON_TIME.THRESHOLD;
+
+    if (x <= 1) {
+      return 1 + (1 - x) / 10;
+    }
+
+    const maxLate = AppState.getDailyDeadline() - TimeUtils.getScheduledDuration(mission);
+    const punishFactor =
+      (Math.min(timeDeviation, maxLate) - CONFIG.ON_TIME.THRESHOLD) /
+      (maxLate - CONFIG.ON_TIME.THRESHOLD);
+    return 1.0 - punishFactor * CONFIG.MAX_PUNISH;
+  }
+
+  static calculateDurationAdherence(mission) {
+    if (!mission.actualStart || !mission.actualEnd) {
+      return 1.0;
+    }
+
+    const x = TimeUtils.getActualDuration(mission) / TimeUtils.getScheduledDuration(mission);
+
+    if (x < 1) {
+      return 1.0 - (1 - x) * CONFIG.MAX_PUNISH;
+    }
+    return 1 + Math.pow(x - 1, 0.5) * 0.5;
+  }
+
   static getGainSnapshot(mission) {
     const baseGain = this.calculateBaseGain(mission);
-    const gainMultiplier = this.calculateGainMultiplier(mission);
+    const gainMultiplier = this.calculateBaseMultiplier(mission);
+    const timeAdherence = this.calculateTimeAdherence(mission);
+    const durationAdherence = this.calculateDurationAdherence(mission);
     const momentumRate = this.calculateMomentumRate(mission);
-    const gainWithMultiplier = baseGain * gainMultiplier;
+    const gainWithMultiplier = baseGain * gainMultiplier * timeAdherence * durationAdherence;
 
     return {
       baseGain,
       gainMultiplier,
+      timeAdherence,
+      durationAdherence,
       momentumRate,
       accumulativeGain:
         mission.miss > CONFIG.MAX_MISSED_DAYS
@@ -95,12 +135,16 @@ class Mission {
       mission.miss = missedDays;
     }
     mission.checkedState = false;
+    mission.actualStart = null;
+    mission.actualEnd = null;
   }
 
   static completeMission(mission) {
     mission.streak++;
     mission.miss = 0;
     mission.checkedState = false;
+    mission.actualStart = null;
+    mission.actualEnd = null;
   }
 }
 
@@ -119,11 +163,42 @@ class TimeUtils {
     return n.toString().padStart(2, "0");
   }
 
-  static formatCountdown(timeLeft) {
-    const hours = Math.floor(timeLeft / CONFIG.TIME.HOUR_MS) % 24;
-    const minutes = Math.floor(timeLeft / CONFIG.TIME.MINUTE_MS) % 60;
-    const seconds = Math.floor(timeLeft / CONFIG.TIME.SECOND_MS) % 60;
-    return `⏰ ${TimeUtils.pad(hours)}:${TimeUtils.pad(minutes)}:${TimeUtils.pad(seconds)} ⏰`;
+  static formatTime(time) {
+    const absTime = Math.abs(time);
+    const hours = Math.floor(absTime / CONFIG.TIME.HOUR_MS) % 24;
+    const minutes = Math.floor(absTime / CONFIG.TIME.MINUTE_MS) % 60;
+    const seconds = Math.floor(absTime / CONFIG.TIME.SECOND_MS) % 60;
+    const sign = time >= 0 ? "+" : "-";
+    return `${sign}${TimeUtils.pad(hours)}:${TimeUtils.pad(minutes)}:${TimeUtils.pad(seconds)}`;
+  }
+
+  static getElapsedTime(mission) {
+    return mission.actualEnd ? 0 : Date.now() - mission.actualStart;
+  }
+
+  static createTimeDate = (timeStr) => {
+    const [hours, minutes] = timeStr.split(":");
+    const date = new Date();
+    date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    return date;
+  };
+
+  static getTimeDeviation(mission) {
+    if (!mission.actualStart || !mission.scheduledStart) return 0;
+    const scheduledTime = TimeUtils.createTimeDate(mission.scheduledStart);
+    return mission.actualStart - scheduledTime;
+  }
+
+  static getActualDuration(mission) {
+    if (!mission.actualStart || !mission.actualEnd) return 0;
+    return mission.actualEnd - mission.actualStart;
+  }
+
+  static getScheduledDuration(mission) {
+    if (!mission.scheduledStart || !mission.scheduledEnd) return 0;
+    const scheduledStart = TimeUtils.createTimeDate(mission.scheduledStart);
+    const scheduledEnd = TimeUtils.createTimeDate(mission.scheduledEnd);
+    return scheduledEnd - scheduledStart;
   }
 }
 
@@ -139,6 +214,7 @@ class AppState {
     this.weeklyGoal = Storage.get("weeklyGoal", CONFIG.DEFAULT_WEEKLY_GOAL);
     this.piggyBank = Storage.get("piggyBank", 0);
     this.weeklyEarnedCoins = Storage.get("weeklyEarnedCoins", 0);
+    this.motivationQuote = Storage.get("motivationQuote");
     const now = new Date();
     this.dailyEarnedCoins = now > this.dailyDeadline ? 0 : Storage.get("dailyEarnedCoins", 0);
   }
@@ -151,6 +227,7 @@ class AppState {
     Storage.set("piggyBank", this.piggyBank);
     Storage.set("weeklyEarnedCoins", this.weeklyEarnedCoins);
     Storage.set("dailyEarnedCoins", this.dailyEarnedCoins);
+    Storage.set("motivationQuote", this.motivationQuote);
   }
 
   addCoins(amount) {
@@ -169,12 +246,17 @@ class AppState {
     this.weeklyEarnedCoins = 0;
     this.weeklyDeadline = new Date(Date.now() + CONFIG.TIME.WEEK_MS);
   }
+
+  static getDailyDeadline() {
+    return Storage.getDate("dailyDeadline");
+  }
 }
 
 class UIManager {
   constructor(state) {
     this.state = state;
-    this.countdownInterval = null;
+    this.dailyDeadlineInterval = null;
+    this.progressIntervals = new Map();
   }
 
   renderProgressSummary() {
@@ -191,6 +273,13 @@ class UIManager {
         element.textContent = value.toFixed(CONFIG.DECIMAL_PLACES);
       }
     });
+  }
+
+  renderMotivationQuote() {
+    const quoteElement = document.getElementById("motivation-quote");
+    if (quoteElement) {
+      quoteElement.textContent = this.state.motivationQuote;
+    }
   }
 
   showGoalMessage(message) {
@@ -221,6 +310,10 @@ class UIManager {
     this.state.missions.forEach((mission, index) => {
       const card = this.createMissionCard(mission, index);
       missionList.appendChild(card);
+
+      if (mission.actualStart && !mission.actualEnd) {
+        this.startProgressTimer(mission, index);
+      }
     });
   }
 
@@ -231,24 +324,110 @@ class UIManager {
 
     const gainData = Mission.getGainSnapshot(mission);
 
-    card.innerHTML = this.getMissionCardHTML(mission, gainData);
+    card.innerHTML = this.getMissionCardHTML(mission, index, gainData);
     this.setupMissionCardEvents(card, mission, index);
 
     return card;
   }
 
-  getMissionCardHTML(mission, gainData) {
-    const { baseGain, gainMultiplier, momentumRate, accumulativeGain } = gainData;
+  addMissionCard(mission, index) {
+    const missionList = document.getElementById("mission-list");
+    const emptyState = document.getElementById("empty-state");
+
+    if (!missionList || !emptyState) {
+      return;
+    }
+
+    // Hide empty state if this is the first mission
+    if (this.state.missions.length === 1) {
+      missionList.style.display = "grid";
+      emptyState.style.display = "none";
+    }
+
+    const card = this.createMissionCard(mission, index);
+    missionList.appendChild(card);
+
+    if (mission.actualStart && !mission.actualEnd) {
+      this.startProgressTimer(mission, index);
+    }
+  }
+
+  removeMissionCard(index) {
+    const card = document.querySelector(`.mission-card[data-index="${index}"]`);
+    if (card) {
+      card.remove();
+    }
+  }
+
+  updateMissionCard(mission, index) {
+    const existingCard = document.querySelector(`.mission-card[data-index="${index}"]`);
+    if (!existingCard) return;
+
+    const gainData = Mission.getGainSnapshot(mission);
+    existingCard.innerHTML = this.getMissionCardHTML(mission, index, gainData);
+    this.setupMissionCardEvents(existingCard, mission, index);
+
+    if (mission.actualStart && !mission.actualEnd) {
+      this.startProgressTimer(mission, index);
+    }
+  }
+
+  getMissionCardHTML(mission, index, gainData) {
+    const {
+      baseGain,
+      gainMultiplier,
+      timeAdherence,
+      durationAdherence,
+      momentumRate,
+      accumulativeGain,
+    } = gainData;
 
     return `
       <div class="mission-header">
         <input type="checkbox" class="mission-checkbox" ${mission.checkedState ? "checked" : ""}>
         <div class="mission-name ${mission.checkedState ? "completed" : ""}">${mission.name}</div>
+        <div class="actions">
+          <button class="btn btn-delete">Delete</button>
+          <button class="btn btn-rename">Rename</button>
+        </div>
       </div>
-      
+
       <div class="stats-row">
         <span class="streak">🔥 Streak: ${mission.streak}</span>
         <span class="misses">💀 Misses: ${mission.miss}</span>
+      </div>
+
+      <div class="progress-section">
+        <div class="progress-clock" data-mission-index="${index}">
+          <span class="clock-time">⏰ +00:00:00</span>
+          ${
+            mission.actualStart
+              ? `<div class="deviation-info">${TimeUtils.formatTime(
+                  TimeUtils.getTimeDeviation(mission)
+                )}</div>`
+              : ""
+          }
+          ${
+            mission.actualEnd
+              ? `<div class="actual-duration">${TimeUtils.formatTime(
+                  TimeUtils.getActualDuration(mission)
+                )}</div>`
+              : ""
+          }
+        </div>
+        <div class="progress-buttons">
+          ${
+            mission.actualStart && !mission.actualEnd
+              ? `<button class="btn btn-end-mission" data-mission-index="${index}">
+            End Mission
+          </button>`
+              : mission.actualEnd
+              ? ""
+              : `<button class="btn btn-start-mission" data-mission-index="${index}">
+            Start Mission
+            </button>`
+          }
+        </div>
       </div>
 
       <div class="params-section">
@@ -271,6 +450,14 @@ class UIManager {
             )}</div>
           </div>
           <div class="gain-item">
+            <div>Time Adherence</div>
+            <div class="gain-value">${timeAdherence.toFixed(CONFIG.DECIMAL_PLACES)}</div>
+          </div>
+          <div class="gain-item">
+            <div>Duration Adherence</div>
+            <div class="gain-value">${durationAdherence.toFixed(CONFIG.DECIMAL_PLACES)}</div>
+          </div>
+          <div class="gain-item">
             <div>Momentum Rate</div>
             <div class="gain-value">${momentumRate.toFixed(CONFIG.DECIMAL_PLACES)}</div>
           </div>
@@ -282,17 +469,12 @@ class UIManager {
           </div>
         </div>
       </div>
-
-      <div class="actions">
-        <button class="btn btn-delete">Delete</button>
-        <button class="btn btn-rename">Rename</button>
-      </div>
     `;
   }
 
   createParamInputs(mission) {
     const params = ["lt_roi", "avoidance", "flow", "st_roi"];
-    return params
+    const paramInputs = params
       .map(
         (param) => `
       <div class="param-input">
@@ -303,6 +485,21 @@ class UIManager {
     `
       )
       .join("");
+
+    const timeInputs = `
+      <div class="time-inputs">
+        <div class="time-input">
+          <label>Start Time:</label>
+          <input type="time" value="${mission.scheduledStart}" data-param="scheduledStart">
+        </div>
+        <div class="time-input">
+          <label>End Time:</label>
+          <input type="time" value="${mission.scheduledEnd}" data-param="scheduledEnd">
+        </div>
+      </div>
+    `;
+
+    return paramInputs + timeInputs;
   }
 
   setupMissionCardEvents(card, mission, index) {
@@ -317,22 +514,48 @@ class UIManager {
       });
     });
 
+    card.querySelectorAll(".time-input input").forEach((input) => {
+      input.addEventListener("change", (e) => {
+        this.onTimeInputChange(mission, e.target, checkbox.checked);
+      });
+    });
+
+    const startButton = card.querySelector(".btn-start-mission");
+    if (startButton) {
+      startButton.addEventListener("click", () => {
+        this.onStartMission(mission, index);
+      });
+    }
+
+    const endButton = card.querySelector(".btn-end-mission");
+    if (endButton) {
+      endButton.addEventListener("click", () => {
+        this.onEndMission(mission, index);
+      });
+    }
+
     card.querySelector(".btn-delete").addEventListener("click", () => {
       this.onDeleteMission(mission, index);
     });
 
     card.querySelector(".btn-rename").addEventListener("click", () => {
-      this.onRenameMission(mission);
+      this.onRenameMission(mission, index);
     });
   }
 
   onMissionToggle(mission, isChecked, card) {
-    const gainData = Mission.getGainSnapshot(mission);
+    if (mission.actualStart && !mission.actualEnd) {
+      alert("You cannot check a mission while it is still active. Please end the mission first!");
+      card.querySelector(".mission-checkbox").checked = false;
+      return;
+    }
+
+    const { accumulativeGain } = Mission.getGainSnapshot(mission);
 
     if (isChecked) {
-      this.state.addCoins(gainData.accumulativeGain);
+      this.state.addCoins(accumulativeGain);
     } else {
-      this.state.removeCoins(gainData.accumulativeGain);
+      this.state.removeCoins(accumulativeGain);
     }
 
     mission.checkedState = isChecked;
@@ -342,7 +565,7 @@ class UIManager {
 
   onParameterBlur(mission, input, index, isChecked) {
     if (isChecked) {
-      alert("Please uncheck the mission first before adjusting parameters.");
+      alert("Please uncheck the mission first before adjusting parameters!");
       input.value = mission[input.dataset.param];
       return;
     }
@@ -356,6 +579,60 @@ class UIManager {
     const roundedValue = parseFloat(value.toFixed(CONFIG.DECIMAL_PLACES));
     input.value = mission[input.dataset.param] = roundedValue;
     this.renderMissionGains(index);
+  }
+
+  onTimeInputChange(mission, input, isChecked) {
+    if (isChecked) {
+      alert("Please uncheck the mission first before changing time!");
+      input.value = mission[input.dataset.param];
+      return;
+    }
+
+    const timeValue = input.value.trim();
+    if (!timeValue) {
+      input.value = mission[input.dataset.param];
+      return;
+    }
+
+    mission[input.dataset.param] = timeValue;
+  }
+
+  onStartMission(mission, index) {
+    mission.actualStart = Date.now();
+    this.startProgressTimer(mission, index);
+    this.updateMissionCard(mission, index);
+  }
+
+  onEndMission(mission, index) {
+    mission.actualEnd = Date.now();
+    this.stopProgressTimer(index);
+    this.updateMissionCard(mission, index);
+  }
+
+  startProgressTimer(mission, index) {
+    if (this.progressIntervals.has(index)) {
+      clearInterval(this.progressIntervals.get(index));
+    }
+
+    const startTime = Date.now();
+    const initialElapsed = TimeUtils.getElapsedTime(mission);
+
+    const interval = setInterval(() => {
+      const clockElement = document.querySelector(`[data-mission-index="${index}"] .clock-time`);
+      if (clockElement) {
+        const currentElapsed = initialElapsed + (Date.now() - startTime);
+        clockElement.textContent = `⏰ ${TimeUtils.formatTime(currentElapsed)}`;
+      }
+    }, 1000);
+
+    this.progressIntervals.set(index, interval);
+  }
+
+  stopProgressTimer(index) {
+    if (this.progressIntervals.has(index)) {
+      clearInterval(this.progressIntervals.get(index));
+      this.progressIntervals.delete(index);
+    }
   }
 
   renderMissionGains(index) {
@@ -381,22 +658,22 @@ class UIManager {
         this.state.removeCoins(accumulativeGain);
       }
       this.state.missions.splice(index, 1);
+      this.removeMissionCard(index);
       this.renderProgressSummary();
-      this.renderMissionList();
     }
   }
 
-  onRenameMission(mission) {
+  onRenameMission(mission, index) {
     const newName = prompt("Rename mission:", mission.name)?.trim();
     if (newName) {
       mission.name = newName;
-      this.renderMissionList();
+      this.updateMissionCard(mission, index);
     }
   }
 
   startCountdown() {
-    if (this.countdownInterval) {
-      clearInterval(this.countdownInterval);
+    if (this.dailyDeadlineInterval) {
+      clearInterval(this.dailyDeadlineInterval);
     }
 
     const updateCountdown = () => {
@@ -406,12 +683,12 @@ class UIManager {
 
       const countdownElement = document.getElementById("countdown");
       if (countdownElement) {
-        countdownElement.textContent = TimeUtils.formatCountdown(timeLeft);
+        countdownElement.textContent = `⌛ ${TimeUtils.formatTime(timeLeft)}`;
       }
     };
 
     updateCountdown();
-    this.countdownInterval = setInterval(updateCountdown, 1000);
+    this.dailyDeadlineInterval = setInterval(updateCountdown, 1000);
   }
 }
 
@@ -475,6 +752,7 @@ class GritCoin {
   }
 
   render() {
+    this.ui.renderMotivationQuote();
     this.ui.renderProgressSummary();
     this.ui.renderMissionList();
     this.ui.startCountdown();
@@ -487,6 +765,10 @@ class GritCoin {
       avoidance: parseFloat(formData.avoidance) || 0,
       flow: parseFloat(formData.flow) || 0,
       st_roi: parseFloat(formData.st_roi) || 0,
+      scheduledStart: formData.scheduledStart || "00:06",
+      scheduledEnd: formData.scheduledEnd || "00:09",
+      actualStart: null,
+      actualEnd: null,
       checkedState: false,
       streak: 0,
       miss: 0,
@@ -499,7 +781,7 @@ class GritCoin {
       this.state.weeklyDeadline = new Date(Date.now() + CONFIG.TIME.WEEK_MS);
     }
 
-    this.ui.renderMissionList();
+    this.ui.addMissionCard(mission, this.state.missions.length - 1);
   }
 
   changeWeeklyGoal() {
@@ -510,12 +792,32 @@ class GritCoin {
     }
   }
 
+  changeMotivationQuote() {
+    const newQuote = prompt("New quote:", this.state.motivationQuote)?.trim();
+    if (newQuote) {
+      this.state.motivationQuote = newQuote;
+      this.ui.renderMotivationQuote();
+    }
+  }
+
+  hasMissionNameExisted(missionName) {
+    const processedMissionName = missionName.trim().toLowerCase();
+    return this.state.missions.find(
+      (mission) => mission.name.trim().toLowerCase() === processedMissionName
+    );
+  }
+
   setupEventListeners() {
     const form = document.getElementById("mission-form");
     if (form) {
       form.addEventListener("submit", (e) => {
         e.preventDefault();
         const formData = new FormData(form);
+        const missionName = formData.get("name").trim();
+        if (this.hasMissionNameExisted(missionName)) {
+          alert("A mission with this name already exists. Please choose a different name!");
+          return;
+        }
         this.addMission(Object.fromEntries(formData));
         form.reset();
       });
@@ -525,6 +827,13 @@ class GritCoin {
     if (goalButton) {
       goalButton.addEventListener("click", () => {
         this.changeWeeklyGoal();
+      });
+    }
+
+    const quoteButton = document.getElementById("change-quote");
+    if (quoteButton) {
+      quoteButton.addEventListener("click", () => {
+        this.changeMotivationQuote();
       });
     }
   }

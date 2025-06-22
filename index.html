@@ -4,12 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="style.css" />
-    <title>GritCoin</title>
+    <title>⚡GritCoin</title>
   </head>
   <body>
     <div class="container">
       <div class="header">
         <h1>🎯 GritCoin</h1>
+        <div class="quote-container">
+          <div class="quote-marquee">
+            <span class="quote-text" id="motivation-quote"
+              >🔥 I am built, not born. ⚔️ Relentless is my default. 🔥</span
+            >
+          </div>
+        </div>
+        <button class="change-quote-btn" id="change-quote">Change Quote</button>
         <div id="countdown" class="countdown"></div>
       </div>
 
@@ -21,8 +29,8 @@
                 <h2 class="goal-title">Weekly Goal</h2>
                 <div class="goal-value" id="weekly-goal">100</div>
               </div>
-              <button class="change-goal-btn" id="change-weekly-goal">Change Goal</button>
             </div>
+            <button class="change-goal-btn" id="change-weekly-goal">Change Goal</button>
           </div>
 
           <div class="stats-grid">
@@ -108,6 +116,17 @@
                 value="0"
                 required
               />
+            </div>
+          </div>
+
+          <div class="time-grid">
+            <div class="input-group">
+              <label>Scheduled Start Time</label>
+              <input type="time" id="scheduledStart" name="scheduledStart" value="06:00" required />
+            </div>
+            <div class="input-group">
+              <label>Scheduled End Time</label>
+              <input type="time" id="scheduledEnd" name="scheduledEnd" value="09:00" required />
             </div>
           </div>
         </div>
